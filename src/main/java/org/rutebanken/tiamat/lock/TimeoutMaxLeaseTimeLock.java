@@ -7,11 +7,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
- * A generic lock that waits for aquiring lock with a timeout. If the lock was aquired, there is a timeout for maximum lease time.
+ * A generic lock that waits for acquiring lock with a timeout. If the lock was acquired, there is a timeout for maximum lease time.
  * Current implementation is using hazelcast.
  */
 @Component
@@ -25,6 +28,12 @@ public class TimeoutMaxLeaseTimeLock {
 
     private final HazelcastInstance hazelcastInstance;
 
+    private final ScheduledExecutorService leaseTimeoutExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "lock-lease-timeout");
+                t.setDaemon(true);
+                return t;
+            });
 
     @Autowired
     public TimeoutMaxLeaseTimeLock(HazelcastInstance hazelcastInstance) {
@@ -40,25 +49,38 @@ public class TimeoutMaxLeaseTimeLock {
         final FencedLock lock = hazelcastInstance.getCPSubsystem().getLock(lockName);
 
             logger.info("Waiting for lock {}", lockName);
+
             if (lock.tryLock(waitTimeoutSeconds, TimeUnit.SECONDS)) {
                 long started = System.currentTimeMillis();
+                ScheduledFuture<?> leaseTimeout = scheduleLeaseTimeout(lock, lockName, maxLeaseTimeSeconds);
                 try {
                     logger.info("Got lock {}", lockName);
                     return supplier.get();
                 } finally {
+                    leaseTimeout.cancel(false);
                     try {
                         logger.info("Unlocking {}", lockName);
                         lock.unlock();
                     } catch (IllegalMonitorStateException ex) {
                         long timeSpent = System.currentTimeMillis() - started;
-                        logger.warn("Could not unlock '{}'. Lease time could have been exeeded. Time spent {}ms",
+                        logger.warn("Could not unlock '{}'. Lease time could have been exceeded. Time spent {}ms",
                                 lockName, timeSpent, ex);
                     }
                 }
             } else {
-                throw new LockException("Timed out waiting to aquire lock " + lockName + " after " + waitTimeoutSeconds + " seconds");
+                throw new LockException("Timed out waiting to acquire lock " + lockName + " after " + waitTimeoutSeconds + " seconds");
             }
     }
 
+    private ScheduledFuture<?> scheduleLeaseTimeout(FencedLock lock, String lockName, int maxLeaseTimeSeconds) {
+        return leaseTimeoutExecutor.schedule(() -> {
+            logger.warn("Lease time of {}s exceeded for lock '{}'. Forcing unlock.", maxLeaseTimeSeconds, lockName);
+            try {
+                lock.unlock();
+            } catch (IllegalMonitorStateException ex) {
+                logger.warn("Could not force-unlock '{}' after lease timeout", lockName, ex);
+            }
+        }, maxLeaseTimeSeconds, TimeUnit.SECONDS);
+    }
 }
 

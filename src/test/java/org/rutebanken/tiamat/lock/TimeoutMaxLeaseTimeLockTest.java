@@ -108,4 +108,51 @@ public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
         // Should throw exception because the wait time was too long
         timeoutMaxLeaseTimeLock.executeInLock(() -> System.currentTimeMillis(), TEST_LOCK_NAME, waitTimeoutSeconds, 10);
     }
+
+    @Test
+    public void testLeaseTimeoutReleasesLock() throws InterruptedException {
+        TimeoutMaxLeaseTimeLock lock = new TimeoutMaxLeaseTimeLock(hazelcastInstance);
+
+        int maxLeaseTimeSeconds = 2;
+        long sleepLongerThanLease = maxLeaseTimeSeconds * 2 * 1000L;
+
+        AtomicBoolean threadGotLock = new AtomicBoolean(false);
+
+        // Thread 1 acquires lock and sleeps longer than the lease time
+        Thread t1 = new Thread(() -> {
+            try {
+                lock.executeInLock(() -> {
+                    threadGotLock.set(true);
+                    try {
+                        logger.info("Sleeping {}ms (longer than lease)", sleepLongerThanLease);
+                        Thread.sleep(sleepLongerThanLease);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return null;
+                }, TEST_LOCK_NAME, 5, maxLeaseTimeSeconds);
+            } catch (Exception e) {
+                logger.info("Thread 1 got expected exception: {}", e.getMessage());
+            }
+        });
+
+        t1.start();
+
+        while (!threadGotLock.get()) {
+            // wait for thread to acquire lock
+        }
+
+        // Wait for lease to expire, plus some buffer
+        Thread.sleep((maxLeaseTimeSeconds + 1) * 1000L);
+
+        // Thread 2 should be able to acquire the lock because lease expired
+        long started = System.currentTimeMillis();
+        long gotLock = lock.executeInLock(() -> System.currentTimeMillis(), TEST_LOCK_NAME, 5, 10);
+        long waited = gotLock - started;
+
+        logger.info("Second thread waited {}ms for lock", waited);
+        Assertions.assertThat(waited)
+                .as("Should acquire lock quickly after lease timeout")
+                .isLessThan(3000);
+    }
 }
