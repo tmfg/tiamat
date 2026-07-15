@@ -17,14 +17,11 @@ package org.rutebanken.tiamat.model;
 
 import com.google.common.base.MoreObjects;
 import jakarta.persistence.CascadeType;
-import jakarta.persistence.DiscriminatorColumn;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.Inheritance;
-import jakarta.persistence.InheritanceType;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Transient;
 
@@ -33,8 +30,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Inheritance(strategy = InheritanceType.SINGLE_TABLE)
-@DiscriminatorColumn
 public class Parking
         extends Site_VersionStructure {
 
