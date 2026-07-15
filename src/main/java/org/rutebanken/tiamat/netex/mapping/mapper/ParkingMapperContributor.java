@@ -20,13 +20,13 @@ import ma.glasnost.orika.MappingContext;
 /**
  * Extension hook for the NeTEx ↔ Tiamat {@link ParkingMapper}.
  * <p>
- * Implementations registered as Spring beans (e.g. with
- * {@code @Profile("fintraffic") @Component}) are discovered automatically and
- * called during both import ({@link #mapFromNetex}) and export ({@link #mapToNetex}).
+ * Implementations registered as Spring beans (e.g. activated by a specific Spring profile)
+ * are discovered automatically and called during both import ({@link #mapFromNetex}) and
+ * export ({@link #mapToNetex}).
  * <p>
- * This allows the Fintraffic {@code ext} package to persist and emit fields that
- * are {@code @Transient} in Entur's core model (e.g. {@code paymentMethods},
- * {@code vehicleEntrances}) without modifying core mapper code.
+ * This allows extension modules to persist and emit fields that are {@code @Transient} in
+ * Entur's core model (e.g. {@code paymentMethods}, {@code vehicleEntrances}) without
+ * modifying core mapper code.
  */
 public interface ParkingMapperContributor {
 

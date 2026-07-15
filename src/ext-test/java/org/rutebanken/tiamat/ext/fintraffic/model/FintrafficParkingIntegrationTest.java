@@ -1,5 +1,7 @@
 package org.rutebanken.tiamat.ext.fintraffic.model;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -44,6 +46,9 @@ public class FintrafficParkingIntegrationTest {
 
     @MockitoBean
     private AuthorizationService authorizationService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Autowired
     private NetexMapper netexMapper;
@@ -92,6 +97,10 @@ public class FintrafficParkingIntegrationTest {
         Parking saved = parkingRepository.save(tiamatParking);
         Long id = saved.getId();
 
+        // Flush and clear to evict first-level cache; forces genuine DB read
+        entityManager.flush();
+        entityManager.clear();
+
         // Reload from DB
         Parking reloaded = parkingRepository.findById(id).orElseThrow();
 
@@ -109,6 +118,10 @@ public class FintrafficParkingIntegrationTest {
         FintrafficParking fp = (FintrafficParking) parkingEntityFactory.create();
         fp.setPaymentMethods(List.of(PaymentMethodEnumeration.CASH));
         Parking saved = parkingRepository.save(fp);
+
+        // Flush and clear to evict first-level cache; forces genuine DB read
+        entityManager.flush();
+        entityManager.clear();
 
         // Reload (ensure we're reading from DB, not session cache)
         Parking reloaded = parkingRepository.findById(saved.getId()).orElseThrow();

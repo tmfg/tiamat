@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static org.rutebanken.tiamat.ext.fintraffic.rest.graphql.FintrafficParkingGraphQLTypeContributor.PAYMENT_METHODS;
 
@@ -47,7 +48,10 @@ public class FintrafficParkingUpdater extends ParkingUpdater {
         List<Parking> parkings = (List<Parking>) super.get(environment);
         if (parkings != null) {
             entityManager.flush();
-            parkings.forEach(entityManager::refresh);
+            parkings.stream()
+                    .filter(Objects::nonNull)
+                    .filter(entityManager::contains)
+                    .forEach(entityManager::refresh);
         }
         return parkings;
     }
