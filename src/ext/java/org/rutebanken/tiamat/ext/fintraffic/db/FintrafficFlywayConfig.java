@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Profile;
 import javax.sql.DataSource;
 import java.util.List;
 
-@Profile("fintraffic-read-api")
+@Profile({"fintraffic-read-api", "fintraffic"})
 @Configuration
 public class FintrafficFlywayConfig {
     private final Logger logger = LoggerFactory.getLogger(FintrafficFlywayConfig.class);
