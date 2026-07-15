@@ -141,6 +141,7 @@ public class ParkingUpdater implements DataFetcher {
             existingVersion = parkingRepository.findFirstByNetexIdOrderByVersionDesc(netexId);
             Preconditions.checkArgument(existingVersion != null, "Attempting to update Parking [id = %s], but Parking does not exist.", netexId);
             updatedParking = versionCreator.createCopy(existingVersion, parkingEntityFactory.getEntityClass());
+            preserveExtendedFields(existingVersion, updatedParking);
 
         } else {
             logger.info("Creating new Parking");
@@ -319,6 +320,21 @@ public class ParkingUpdater implements DataFetcher {
      */
     protected boolean populateExtendedFields(Map input, Parking updatedParking) {
         return false;
+    }
+
+    /**
+     * Extension hook for copying extended fields from an existing version into its version copy
+     * during a GraphQL update.  Called immediately after {@link org.rutebanken.tiamat.versioning.VersionCreator#createCopy}
+     * and before {@link #populateParking} so that extended fields not present in the update
+     * input retain their current values rather than being silently cleared.
+     * <p>
+     * The default implementation does nothing.  Subclasses override to copy fields that
+     * Orika does not transfer (e.g. private fields in {@code FintrafficParking}).
+     *
+     * @param existingVersion the current persisted parking entity
+     * @param copy            the newly created version copy that will be saved
+     */
+    protected void preserveExtendedFields(Parking existingVersion, Parking copy) {
     }
 
     private List<ParkingProperties> resolveParkingPropertiesList(List propertyList) {

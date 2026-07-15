@@ -52,6 +52,7 @@ import org.rutebanken.netex.model.TopographicPlace;
 import org.rutebanken.netex.model.WaitingRoomEquipment;
 import org.rutebanken.tiamat.model.factory.ParkingEntityFactory;
 import org.rutebanken.tiamat.netex.mapping.mapper.*;
+import org.rutebanken.tiamat.netex.mapping.mapper.ParkingMapperContributor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +66,7 @@ public class NetexMapper {
     private final MapperFacade facade;
     private final MapperFactory mapperFactory = new DefaultMapperFactory.Builder().build();
     private final ParkingEntityFactory parkingEntityFactory;
+    private final List<ParkingMapperContributor> parkingMapperContributors;
 
     /**
      * Ensures that exported id-s contain a "netexId" kind of value instead of a plain number
@@ -79,11 +81,14 @@ public class NetexMapper {
                        DataManagedObjectStructureMapper dataManagedObjectStructureMapper,
                        PublicationDeliveryHelper publicationDeliveryHelper,
                        AccessibilityAssessmentMapper accessibilityAssessmentMapper,
-                       ParkingEntityFactory parkingEntityFactory) {
+                       ParkingEntityFactory parkingEntityFactory,
+                       @org.springframework.beans.factory.annotation.Autowired(required = false)
+                       List<ParkingMapperContributor> parkingMapperContributors) {
 
         logger.info("Setting up netexMapper with DI");
         logger.info("Creating netex mapperFacade with {} converters ", converters.size());
         this.parkingEntityFactory = parkingEntityFactory;
+        this.parkingMapperContributors = parkingMapperContributors != null ? parkingMapperContributors : List.of();
 
         if(logger.isDebugEnabled()) {
             logger.debug("Converters: {}", converters);
@@ -235,7 +240,7 @@ public class NetexMapper {
     private void registerParkingClassMap(ParkingEntityFactory factory) {
         ClassMapBuilder builder = mapperFactoryWithNetexIdClassBuilder(Parking.class, factory.getEntityClass());
         factory.getMappingExclusions().forEach(builder::exclude);
-        builder.customize(new ParkingMapper())
+        builder.customize(new ParkingMapper(parkingMapperContributors))
                .byDefault()
                .register();
     }
