@@ -15,10 +15,11 @@
 
 package org.rutebanken.tiamat.importer.merging;
 
-import org.rutebanken.tiamat.importer.KeyValueListAppender;
+import org.rutebanken.tiamat.model.factory.ParkingEntityFactory;
 import org.rutebanken.tiamat.importer.finder.NearbyParkingFinder;
-import org.rutebanken.tiamat.importer.finder.ParkingFromOriginalIdFinder;
 import org.rutebanken.tiamat.model.DataManagedObjectStructure;
+import org.rutebanken.tiamat.importer.finder.ParkingFromOriginalIdFinder;
+import org.rutebanken.tiamat.importer.KeyValueListAppender;
 import org.rutebanken.tiamat.model.Parking;
 import org.rutebanken.tiamat.netex.mapping.NetexMapper;
 import org.rutebanken.tiamat.netex.mapping.mapper.NetexIdMapper;
@@ -56,11 +57,14 @@ public class MergingParkingImporter {
 
     private final VersionCreator versionCreator;
 
+    private final ParkingEntityFactory parkingEntityFactory;
+
     @Autowired
     public MergingParkingImporter(ParkingFromOriginalIdFinder parkingFromOriginalIdFinder,
                                   NearbyParkingFinder nearbyParkingFinder, ReferenceResolver referenceResolver,
                                   KeyValueListAppender keyValueListAppender, NetexMapper netexMapper,
-                                  ParkingVersionedSaverService parkingVersionedSaverService, VersionCreator versionCreator) {
+                                  ParkingVersionedSaverService parkingVersionedSaverService, VersionCreator versionCreator,
+                                  ParkingEntityFactory parkingEntityFactory) {
         this.parkingFromOriginalIdFinder = parkingFromOriginalIdFinder;
         this.nearbyParkingFinder = nearbyParkingFinder;
         this.referenceResolver = referenceResolver;
@@ -68,6 +72,7 @@ public class MergingParkingImporter {
         this.netexMapper = netexMapper;
         this.parkingVersionedSaverService = parkingVersionedSaverService;
         this.versionCreator = versionCreator;
+        this.parkingEntityFactory = parkingEntityFactory;
     }
 
     /**
@@ -134,7 +139,7 @@ public class MergingParkingImporter {
     public Parking handleAlreadyExistingParking(Parking existingParking, Parking incomingParking) {
         logger.debug("Found existing parking {} from incoming {}", existingParking, incomingParking);
 
-        Parking copy = versionCreator.createCopy(existingParking, Parking.class);
+        Parking copy = versionCreator.createCopy(existingParking, parkingEntityFactory.getEntityClass());
 
         boolean keyValuesChanged = keyValueListAppender.appendToOriginalId(NetexIdMapper.ORIGINAL_ID_KEY, incomingParking, copy);
         boolean centroidChanged = (copy.getCentroid() != null && incomingParking.getCentroid() != null && !copy.getCentroid().equals(incomingParking.getCentroid()));

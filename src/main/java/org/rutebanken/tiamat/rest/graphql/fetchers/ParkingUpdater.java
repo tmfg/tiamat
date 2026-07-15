@@ -25,6 +25,7 @@ import org.rutebanken.tiamat.model.AccessibilityLimitation;
 import org.rutebanken.tiamat.model.EmbeddableMultilingualString;
 import org.rutebanken.tiamat.model.LimitationStatusEnumeration;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.factory.ParkingEntityFactory;
 import org.rutebanken.tiamat.model.ParkingArea;
 import org.rutebanken.tiamat.model.ParkingCapacity;
 import org.rutebanken.tiamat.model.ParkingLayoutEnumeration;
@@ -113,6 +114,9 @@ class ParkingUpdater implements DataFetcher {
     private VersionCreator versionCreator;
 
     @Autowired
+    private ParkingEntityFactory parkingEntityFactory;
+
+    @Autowired
     private AccessibilityLimitationMapper accessibilityLimitationMapper;
 
     @Override
@@ -136,11 +140,11 @@ class ParkingUpdater implements DataFetcher {
             logger.info("Updating Parking {}", netexId);
             existingVersion = parkingRepository.findFirstByNetexIdOrderByVersionDesc(netexId);
             Preconditions.checkArgument(existingVersion != null, "Attempting to update Parking [id = %s], but Parking does not exist.", netexId);
-            updatedParking = versionCreator.createCopy(existingVersion, Parking.class);
+            updatedParking = versionCreator.createCopy(existingVersion, parkingEntityFactory.getEntityClass());
 
         } else {
             logger.info("Creating new Parking");
-            updatedParking = new Parking();
+            updatedParking = parkingEntityFactory.create();
         }
         boolean isUpdated = populateParking(input, updatedParking);
 

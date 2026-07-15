@@ -50,6 +50,7 @@ import org.rutebanken.netex.model.LocalService_VersionStructure;
 import org.rutebanken.netex.model.TicketingEquipment;
 import org.rutebanken.netex.model.TopographicPlace;
 import org.rutebanken.netex.model.WaitingRoomEquipment;
+import org.rutebanken.tiamat.model.factory.ParkingEntityFactory;
 import org.rutebanken.tiamat.netex.mapping.mapper.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ public class NetexMapper {
     private static final Logger logger = LoggerFactory.getLogger(NetexMapper.class);
     private final MapperFacade facade;
     private final MapperFactory mapperFactory = new DefaultMapperFactory.Builder().build();
+    private final ParkingEntityFactory parkingEntityFactory;
 
     /**
      * Ensures that exported id-s contain a "netexId" kind of value instead of a plain number
@@ -76,10 +78,12 @@ public class NetexMapper {
     public NetexMapper(List<Converter> converters, KeyListToKeyValuesMapMapper keyListToKeyValuesMapMapper,
                        DataManagedObjectStructureMapper dataManagedObjectStructureMapper,
                        PublicationDeliveryHelper publicationDeliveryHelper,
-                       AccessibilityAssessmentMapper accessibilityAssessmentMapper) {
+                       AccessibilityAssessmentMapper accessibilityAssessmentMapper,
+                       ParkingEntityFactory parkingEntityFactory) {
 
         logger.info("Setting up netexMapper with DI");
         logger.info("Creating netex mapperFacade with {} converters ", converters.size());
+        this.parkingEntityFactory = parkingEntityFactory;
 
         if(logger.isDebugEnabled()) {
             logger.debug("Converters: {}", converters);
@@ -144,14 +148,7 @@ public class NetexMapper {
                 .register();
 
 
-        mapperFactoryWithNetexIdClassBuilder(Parking.class, org.rutebanken.tiamat.model.Parking.class)
-                .exclude("paymentMethods")
-                .exclude("cardsAccepted")
-                .exclude("currenciesAccepted")
-                .exclude("accessModes")
-                .customize(new ParkingMapper())
-                .byDefault()
-                .register();
+        registerParkingClassMap(parkingEntityFactory);
 
         mapperFactory.classMap(PathLinkEndStructure.class, org.rutebanken.tiamat.model.PathLinkEnd.class)
                 .byDefault()
@@ -232,6 +229,15 @@ public class NetexMapper {
                 .register();
 
         facade = mapperFactory.getMapperFacade();
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void registerParkingClassMap(ParkingEntityFactory factory) {
+        ClassMapBuilder builder = mapperFactoryWithNetexIdClassBuilder(Parking.class, factory.getEntityClass());
+        factory.getMappingExclusions().forEach(builder::exclude);
+        builder.customize(new ParkingMapper())
+               .byDefault()
+               .register();
     }
 
     public TopographicPlace mapToNetexModel(org.rutebanken.tiamat.model.TopographicPlace topographicPlace) {
@@ -328,7 +334,10 @@ public class NetexMapper {
     }
 
     public List<org.rutebanken.tiamat.model.Parking> mapParkingsToTiamatModel(List<Parking> parking) {
-        return facade.mapAsList(parking, org.rutebanken.tiamat.model.Parking.class);
+        @SuppressWarnings("unchecked")
+        List<org.rutebanken.tiamat.model.Parking> result =
+                (List<org.rutebanken.tiamat.model.Parking>) facade.mapAsList(parking, parkingEntityFactory.getEntityClass());
+        return result;
     }
 
     public List<org.rutebanken.tiamat.model.PathLink> mapPathLinksToTiamatModel(List<PathLink> pathLinks) {
@@ -350,7 +359,10 @@ public class NetexMapper {
 
 
     public org.rutebanken.tiamat.model.Parking mapToTiamatModel(Parking netexParking) {
-        return facade.map(netexParking, org.rutebanken.tiamat.model.Parking.class);
+        @SuppressWarnings("unchecked")
+        org.rutebanken.tiamat.model.Parking result =
+                (org.rutebanken.tiamat.model.Parking) facade.map(netexParking, parkingEntityFactory.getEntityClass());
+        return result;
     }
 
     public Quay mapToNetexModel(org.rutebanken.tiamat.model.Quay tiamatQuay) {
