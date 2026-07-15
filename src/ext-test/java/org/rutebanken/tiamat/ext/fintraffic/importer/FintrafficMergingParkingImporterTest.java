@@ -135,4 +135,50 @@ public class FintrafficMergingParkingImporterTest {
                 .as("no new version must be created when paymentMethods are unchanged")
                 .isEqualTo(existingVersion);
     }
+
+    @Test
+    @Transactional
+    public void handleCompletelyNewParking_withPlainParking_preservesPaymentMethods() throws Exception {
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        // Simulate the NeTEx mapper: produces a plain Parking with the @Transient
+        // paymentMethods field populated from the NeTEx document.
+        Parking incoming = new Parking();
+        incoming.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        incoming.getPaymentMethods().add(PaymentMethodEnumeration.CASH);
+
+        Parking saved = mergingParkingImporter.handleCompletelyNewParking(incoming);
+
+        assertThat(saved)
+                .as("NeTEx-imported parking must be promoted to FintrafficParking")
+                .isInstanceOf(FintrafficParking.class);
+        assertThat(((FintrafficParking) saved).getPaymentMethods())
+                .as("paymentMethods from plain NeTEx-derived Parking must be preserved")
+                .containsExactlyInAnyOrder(PaymentMethodEnumeration.CASH);
+    }
+
+    @Test
+    @Transactional
+    public void handleAlreadyExistingParking_withPlainParking_mergesPaymentMethods() {
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        FintrafficParking existing = new FintrafficParking();
+        existing.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        existing.setPaymentMethods(List.of(PaymentMethodEnumeration.CASH));
+        existing = (FintrafficParking) parkingVersionedSaverService.saveNewVersion(existing);
+
+        // Simulate the NeTEx mapper: plain Parking with updated @Transient paymentMethods
+        Parking incoming = new Parking();
+        incoming.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        incoming.getPaymentMethods().add(PaymentMethodEnumeration.CREDIT_CARD);
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result).isInstanceOf(FintrafficParking.class);
+        assertThat(((FintrafficParking) result).getPaymentMethods())
+                .as("paymentMethods from plain NeTEx-derived Parking must overwrite existing")
+                .containsExactlyInAnyOrder(PaymentMethodEnumeration.CREDIT_CARD);
+    }
 }

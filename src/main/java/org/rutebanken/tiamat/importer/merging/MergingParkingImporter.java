@@ -130,10 +130,15 @@ public class MergingParkingImporter {
 
         // Ignore incoming version. Always set version to 1 for new parkings.
         logger.debug("New parking: {}. Setting version to \"1\"", incomingParking.getName());
-        // versionCreator.createCopy(incomingParking, Parking.class);
 
-        incomingParking = parkingVersionedSaverService.saveNewVersion(incomingParking);
-        return updateCache(incomingParking);
+        // Create an entity of the type produced by the factory (e.g. FintrafficParking when the
+        // fintraffic profile is active). This ensures the correct dtype is persisted and that
+        // subclasses can populate extended fields via mergeExtendedFields.
+        Parking newParking = versionCreator.createCopy(incomingParking, parkingEntityFactory.getEntityClass());
+        mergeExtendedFields(incomingParking, newParking);
+
+        newParking = parkingVersionedSaverService.saveNewVersion(newParking);
+        return updateCache(newParking);
     }
 
     public Parking handleAlreadyExistingParking(Parking existingParking, Parking incomingParking) {

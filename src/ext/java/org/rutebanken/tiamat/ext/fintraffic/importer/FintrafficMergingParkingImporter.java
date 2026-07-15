@@ -16,13 +16,23 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Fintraffic extension of {@link MergingParkingImporter} that merges
- * {@link FintrafficParking#getPaymentMethods() paymentMethods} during
- * {@link #handleAlreadyExistingParking} so that re-importing a parking
- * updates its payment methods rather than silently discarding them.
+ * Fintraffic extension of {@link MergingParkingImporter} that preserves
+ * {@link FintrafficParking#getPaymentMethods() paymentMethods} on both import paths:
+ * <ul>
+ *   <li>New parking — {@code handleCompletelyNewParking} creates a typed
+ *       {@link FintrafficParking} copy and calls {@link #mergeExtendedFields} to copy
+ *       the transient {@code paymentMethods} from the NeTEx-derived source into the
+ *       persisted field of the copy.</li>
+ *   <li>Existing parking — {@code handleAlreadyExistingParking} does the same via
+ *       its own {@link #mergeExtendedFields} call.</li>
+ * </ul>
+ * In both cases {@code incomingParking} may be a plain {@link org.rutebanken.tiamat.model.Parking}
+ * (as produced by the NeTEx mapper) or a {@link FintrafficParking}; only the copy passed
+ * as the second argument is required to be a {@link FintrafficParking}.
  */
 @Profile("fintraffic")
 @Primary
@@ -45,19 +55,20 @@ public class FintrafficMergingParkingImporter extends MergingParkingImporter {
 
     @Override
     protected boolean mergeExtendedFields(Parking incomingParking, Parking copy) {
-        if (!(incomingParking instanceof FintrafficParking incoming)
-                || !(copy instanceof FintrafficParking target)) {
+        if (!(copy instanceof FintrafficParking target)) {
             return false;
         }
 
-        List<org.rutebanken.tiamat.model.PaymentMethodEnumeration> incomingMethods = incoming.getPaymentMethods();
+        // incomingParking may be a plain Parking (from NeTEx mapper) or FintrafficParking (from DB).
+        // Either way, Parking.getPaymentMethods() returns the in-memory list the NeTEx mapper set.
+        List<org.rutebanken.tiamat.model.PaymentMethodEnumeration> incomingMethods = incomingParking.getPaymentMethods();
         List<org.rutebanken.tiamat.model.PaymentMethodEnumeration> existingMethods = target.getPaymentMethods();
 
         if (incomingMethods.equals(existingMethods)) {
             return false;
         }
 
-        target.setPaymentMethods(List.copyOf(incomingMethods));
+        target.setPaymentMethods(new ArrayList<>(incomingMethods));
         return true;
     }
 }
