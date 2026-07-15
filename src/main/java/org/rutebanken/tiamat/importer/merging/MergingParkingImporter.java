@@ -164,7 +164,9 @@ public class MergingParkingImporter {
         }
 
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType) {
+        boolean extendedFieldsChanged = mergeExtendedFields(incomingParking, copy);
+
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || extendedFieldsChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);
@@ -173,6 +175,19 @@ public class MergingParkingImporter {
         logger.debug("No changes. Returning existing parking {}", existingParking);
         return existingParking;
 
+    }
+
+    /**
+     * Extension hook for merging additional fields from an incoming parking into a version copy.
+     * Called during {@link #handleAlreadyExistingParking} after core fields are merged.
+     * Subclasses may override to merge fields that are not part of the core {@link Parking} model.
+     *
+     * @param incomingParking the incoming (source) parking from the NeTEx import
+     * @param copy            the version copy being prepared for persistence
+     * @return {@code true} if any field was changed on {@code copy}, {@code false} otherwise
+     */
+    protected boolean mergeExtendedFields(Parking incomingParking, Parking copy) {
+        return false;
     }
 
     private Parking updateCache(Parking parking) {
