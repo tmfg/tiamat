@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -69,5 +70,22 @@ public class FintrafficParkingUpdater extends ParkingUpdater {
 
         target.setPaymentMethods(List.copyOf(incoming));
         return true;
+    }
+
+    /**
+     * Copies extended fields that Orika does not transfer from the existing version into
+     * the newly created version copy.  Called by the parent's update path immediately
+     * after {@link org.rutebanken.tiamat.versioning.VersionCreator#createCopy}, before
+     * {@link #populateExtendedFields} overwrites them with the GraphQL input values.
+     * <p>
+     * This ensures that fields omitted from the update mutation (e.g. the caller did not
+     * include {@code paymentMethods} in the input) retain their current values rather than
+     * being silently reset to the default.
+     */
+    @Override
+    protected void preserveExtendedFields(Parking existingVersion, Parking copy) {
+        if (existingVersion instanceof FintrafficParking source && copy instanceof FintrafficParking target) {
+            target.setPaymentMethods(new ArrayList<>(source.getPaymentMethods()));
+        }
     }
 }

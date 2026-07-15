@@ -201,4 +201,65 @@ public class FintrafficGraphQLParkingIntegrationTest {
                         PaymentMethodEnumeration.CASH,
                         PaymentMethodEnumeration.CREDIT_CARD);
     }
+
+    /**
+     * Verifies that {@link FintrafficParkingUpdater#preserveExtendedFields} copies
+     * {@code paymentMethods} from the existing version into the version copy when an
+     * update mutation omits the field.  Without this hook, Orika's {@code createCopy}
+     * would not transfer the private {@link FintrafficParking#paymentMethods} field and
+     * the update would silently clear any previously saved payment methods.
+     */
+    @Test
+    public void mutateParking_updateWithoutPaymentMethods_preservesExistingPaymentMethods() {
+        StopPlace stopPlace = new StopPlace(new EmbeddableMultilingualString("Test stop"));
+        stopPlace.setStopPlaceType(StopTypeEnumeration.ONSTREET_BUS);
+        stopPlace = stopPlaceVersionedSaverService.saveNewVersion(stopPlace);
+        String stopNetexId = stopPlace.getNetexId();
+
+        // Create with paymentMethods
+        String createMutation = """
+                {
+                  "query": "mutation { parking: %s (Parking: { name: { value: \\"Test\\" lang: \\"fi\\" } parkingType: parkAndRide parentSiteRef: \\"%s\\" paymentMethods: [cash, creditCard] }) { id paymentMethods } }",
+                  "variables": ""
+                }
+                """.formatted(GraphQLNames.MUTATE_PARKING, stopNetexId);
+
+        String parkingNetexId = given()
+                .port(port)
+                .contentType(ContentType.JSON)
+                .body(createMutation)
+                .when()
+                .post(BASE_URI_GRAPHQL)
+                .then()
+                .statusCode(200)
+                .extract()
+                .path("data.parking[0].id");
+
+        // Update without paymentMethods — field should be preserved
+        String updateMutation = """
+                {
+                  "query": "mutation { parking: %s (Parking: { id: \\"%s\\" name: { value: \\"Updated\\" lang: \\"fi\\" } }) { id paymentMethods } }",
+                  "variables": ""
+                }
+                """.formatted(GraphQLNames.MUTATE_PARKING, parkingNetexId);
+
+        given()
+                .port(port)
+                .contentType(ContentType.JSON)
+                .body(updateMutation)
+                .when()
+                .post(BASE_URI_GRAPHQL)
+                .then()
+                .log().body()
+                .statusCode(200)
+                .body("data.parking[0].paymentMethods", hasItems("cash", "creditCard"));
+
+        FintrafficParking latest = (FintrafficParking)
+                parkingRepository.findFirstByNetexIdOrderByVersionDesc(parkingNetexId);
+        assertThat(latest.getPaymentMethods())
+                .as("paymentMethods must be preserved when not included in update input")
+                .containsExactlyInAnyOrder(
+                        PaymentMethodEnumeration.CASH,
+                        PaymentMethodEnumeration.CREDIT_CARD);
+    }
 }
