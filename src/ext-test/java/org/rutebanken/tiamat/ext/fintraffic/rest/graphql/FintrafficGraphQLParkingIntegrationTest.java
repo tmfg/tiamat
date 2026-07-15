@@ -11,6 +11,7 @@ import org.rutebanken.tiamat.ext.fintraffic.FintrafficTiamatTestApplication;
 import org.rutebanken.tiamat.ext.fintraffic.model.FintrafficParking;
 import org.rutebanken.tiamat.model.EmbeddableMultilingualString;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.PaymentMethodEnumeration;
 import org.rutebanken.tiamat.model.StopPlace;
 import org.rutebanken.tiamat.model.StopTypeEnumeration;
 import org.rutebanken.tiamat.repository.ParkingRepository;
@@ -25,6 +26,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.junit4.SpringRunner;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.rutebanken.tiamat.config.JerseyConfig.SERVICES_STOP_PLACE_PATH;
 
@@ -160,5 +162,43 @@ public class FintrafficGraphQLParkingIntegrationTest {
                         .as("All versions of a parking must be FintrafficParking instances")
                         .isInstanceOf(FintrafficParking.class)
         );
+    }
+
+    @Test
+    public void mutateParking_paymentMethods_persistedAndReturnedInResponse() {
+        StopPlace stopPlace = new StopPlace(new EmbeddableMultilingualString("Test stop"));
+        stopPlace.setStopPlaceType(StopTypeEnumeration.ONSTREET_BUS);
+        stopPlace = stopPlaceVersionedSaverService.saveNewVersion(stopPlace);
+        String stopNetexId = stopPlace.getNetexId();
+
+        String mutation = """
+                {
+                  "query": "mutation { parking: %s (Parking: { name: { value: \\"Test\\" lang: \\"fi\\" } parkingType: parkAndRide parentSiteRef: \\"%s\\" paymentMethods: [cash, creditCard] }) { id paymentMethods } }",
+                  "variables": ""
+                }
+                """.formatted(GraphQLNames.MUTATE_PARKING, stopNetexId);
+
+        String parkingNetexId = given()
+                .port(port)
+                .contentType(ContentType.JSON)
+                .body(mutation)
+                .when()
+                .post(BASE_URI_GRAPHQL)
+                .then()
+                .log().body()
+                .statusCode(200)
+                .body("data.parking[0].id", notNullValue())
+                .body("data.parking[0].paymentMethods", hasItems("cash", "creditCard"))
+                .extract()
+                .path("data.parking[0].id");
+
+        FintrafficParking saved = (FintrafficParking)
+                parkingRepository.findFirstByNetexIdOrderByVersionDesc(parkingNetexId);
+
+        assertThat(saved.getPaymentMethods())
+                .as("paymentMethods must be persisted to DB via FintrafficParkingUpdater")
+                .containsExactlyInAnyOrder(
+                        PaymentMethodEnumeration.CASH,
+                        PaymentMethodEnumeration.CREDIT_CARD);
     }
 }

@@ -27,7 +27,7 @@ import java.util.List;
 @DiscriminatorValue("FintrafficParking")
 public class FintrafficParking extends Parking {
 
-    @ElementCollection(fetch = FetchType.LAZY)
+    @ElementCollection(fetch = FetchType.EAGER)
     @Enumerated(EnumType.STRING)
     @CollectionTable(
             name = "parking_payment_methods",

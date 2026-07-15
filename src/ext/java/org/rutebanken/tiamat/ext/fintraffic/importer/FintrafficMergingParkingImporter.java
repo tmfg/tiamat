@@ -12,6 +12,7 @@ import org.rutebanken.tiamat.repository.reference.ReferenceResolver;
 import org.rutebanken.tiamat.versioning.VersionCreator;
 import org.rutebanken.tiamat.versioning.save.ParkingVersionedSaverService;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Profile;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,7 @@ import java.util.List;
  * {@link #handleAlreadyExistingParking} so that re-importing a parking
  * updates its payment methods rather than silently discarding them.
  */
+@Profile("fintraffic")
 @Primary
 @Component
 @Qualifier("mergingParkingImporter")

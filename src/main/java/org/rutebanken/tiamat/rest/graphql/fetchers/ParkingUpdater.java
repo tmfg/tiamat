@@ -91,7 +91,7 @@ import static org.rutebanken.tiamat.rest.graphql.mappers.EmbeddableMultilingualS
 
 @Service("parkingUpdater")
 @Transactional
-class ParkingUpdater implements DataFetcher {
+public class ParkingUpdater implements DataFetcher {
 
     private static final Logger logger = LoggerFactory.getLogger(ParkingUpdater.class);
 
@@ -161,7 +161,7 @@ class ParkingUpdater implements DataFetcher {
         return existingVersion;
     }
 
-    private boolean populateParking(Map input, Parking updatedParking) {
+    protected boolean populateParking(Map input, Parking updatedParking) {
         boolean isUpdated = false;
         if (input.get(NAME) != null) {
             EmbeddableMultilingualString name = getEmbeddableString((Map) input.get(NAME));
@@ -302,7 +302,23 @@ class ParkingUpdater implements DataFetcher {
             }
         }
 
+        boolean extendedFieldsUpdated = populateExtendedFields(input, updatedParking);
+        isUpdated = isUpdated || extendedFieldsUpdated;
+
         return isUpdated;
+    }
+
+    /**
+     * Extension hook for populating additional fields from the GraphQL input map onto the parking entity.
+     * Called at the end of {@link #populateParking} after all core fields are processed.
+     * Subclasses may override to handle fields contributed via {@link org.rutebanken.tiamat.rest.graphql.types.ParkingGraphQLTypeContributor}.
+     *
+     * @param input          the raw GraphQL input map
+     * @param updatedParking the parking entity being created or updated
+     * @return {@code true} if any field was changed on {@code updatedParking}, {@code false} otherwise
+     */
+    protected boolean populateExtendedFields(Map input, Parking updatedParking) {
+        return false;
     }
 
     private List<ParkingProperties> resolveParkingPropertiesList(List propertyList) {
