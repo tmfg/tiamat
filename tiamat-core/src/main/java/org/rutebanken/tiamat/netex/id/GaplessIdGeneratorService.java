@@ -34,9 +34,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
 
 import static java.util.stream.Collectors.toList;
 
@@ -47,8 +45,8 @@ import static java.util.stream.Collectors.toList;
  *
  * This service should only be called for certain ID prefixes. This service only operates with long values.
  *
- * This service is using Hazelcast to avoid generating the same IDs on multiple nodes.
- * There is a hazelcast lock for persisting these IDs from one node to a table in postgres.
+ * This service is using Hazelcast for in-memory state of generated/claimed IDs.
+ * PostgreSQL advisory transaction locks are used when generating and persisting IDs.
  * The reason for not writing the IDs immediately is performance when importing many stops. For instance the initial population of stop places.
  */
 @Service
@@ -56,33 +54,29 @@ public class GaplessIdGeneratorService {
 
     private static final Logger logger = LoggerFactory.getLogger(GaplessIdGeneratorService.class);
 
-    public static final String REENTRANT_LOCK_PREFIX = "entity_lock_";
-
     public static final long INITIAL_LAST_ID = 0;
     public static final int LOW_LEVEL_AVAILABLE_IDS = 10;
     public static final int DEFAULT_FETCH_SIZE = 2000;
 
     public static final int INSERT_CLAIMED_ID_THRESHOLD = 1000;
+    private static final int ADVISORY_LOCK_NAMESPACE = 62153;
 
     private static BasicFormatterImpl basicFormatter = new BasicFormatterImpl();
 
     private final int fetchSize;
 
     private final EntityManagerFactory entityManagerFactory;
-    private final HazelcastInstance hazelcastInstance;
     private final GeneratedIdState generatedIdState;
 
     @Autowired
     public GaplessIdGeneratorService(EntityManagerFactory entityManagerFactory, HazelcastInstance hazelcastInstance, GeneratedIdState generatedIdState) {
         this.entityManagerFactory = entityManagerFactory;
-        this.hazelcastInstance = hazelcastInstance;
         this.generatedIdState = generatedIdState;
         this.fetchSize = DEFAULT_FETCH_SIZE;
     }
 
     public GaplessIdGeneratorService(EntityManagerFactory entityManagerFactory, HazelcastInstance hazelcastInstance, GeneratedIdState generatedIdState, int fetchSize) {
         this.entityManagerFactory = entityManagerFactory;
-        this.hazelcastInstance = hazelcastInstance;
         this.generatedIdState = generatedIdState;
 
         if (fetchSize < LOW_LEVEL_AVAILABLE_IDS) {
@@ -114,8 +108,6 @@ public class GaplessIdGeneratorService {
      * @return the claimed ID
      */
     public long getNextIdForEntity(String entityTypeName, long claimedId) {
-        final Lock lock = hazelcastInstance.getCPSubsystem().getLock(entityLockString(entityTypeName));
-        lock.lock();
         try {
             BlockingQueue<Long> availableIds = generatedIdState.getQueueForEntity(entityTypeName);
             final ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
@@ -146,8 +138,6 @@ public class GaplessIdGeneratorService {
             }
         } catch (Exception e) {
             throw new IdGeneratorException("Caught exception when generating IDs for entity " + entityTypeName, e);
-        } finally {
-            lock.unlock();
         }
     }
 
@@ -157,6 +147,7 @@ public class GaplessIdGeneratorService {
     private void writeClaimedIdsAndGenerateNew(String entityTypeName, boolean timeToGenerateAvailableIds) {
         EntityManager entityManager = entityManagerFactory.createEntityManager();
         executeInTransaction(() -> {
+            acquireAdvisoryTransactionLock(entityTypeName, entityManager);
             BlockingQueue<Long> availableIds = generatedIdState.getQueueForEntity(entityTypeName);
             ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
 
@@ -295,7 +286,8 @@ public class GaplessIdGeneratorService {
 
     /**
      * Persist claimed IDs to the helper table.
-     * Executed in a hazelcast lock, to avoid having multiple instances persisting at the same time.
+     * Executed under a PostgreSQL advisory transaction lock per entity type,
+     * to avoid having multiple instances persisting at the same time.
      * This method is intended to run in a background thread once in a while.
      */
     public void persistClaimedIds() {
@@ -303,40 +295,34 @@ public class GaplessIdGeneratorService {
         logger.trace("Start to persist claimed IDs if any");
         AtomicInteger persisted = new AtomicInteger();
         generatedIdState.getRegisteredEntityNames().forEach(entityTypeName -> {
-            final Lock lock = hazelcastInstance.getCPSubsystem().getLock(entityLockString(entityTypeName));
-            boolean gotLock;
-            final int secondsToWait = 4;
             try {
-                gotLock = lock.tryLock(secondsToWait, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                logger.warn("Could not get lock for entity {} after {} seconds. Giving up.", secondsToWait, entityTypeName);
-                gotLock = false;
-            }
-
-            if(gotLock) {
-                try {
-                    EntityManager entityManager = entityManagerFactory.createEntityManager();
-                    executeInTransaction(() -> {
-                        ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
-                        if(!claimedIds.isEmpty()) {
-                            logger.info("About to write {} claimed IDs to db for {}", claimedIds.size(), entityTypeName);
-                            insertIdsIgnoreDuplicates(entityTypeName, claimedIds, entityManager);
-                            persisted.addAndGet(claimedIds.size());
-                            claimedIds.destroy();
-                        } else {
-                            logger.debug("No claimed IDs to insert for {}", entityTypeName);
-                        }
-                    }, entityManager);
-                } catch (Exception e) {
-                  logger.warn("Error writing claimed IDs for {} in transaction", entityTypeName, e);
-                } finally {
-                    lock.unlock();
-                }
+                EntityManager entityManager = entityManagerFactory.createEntityManager();
+                executeInTransaction(() -> {
+                    acquireAdvisoryTransactionLock(entityTypeName, entityManager);
+                    ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
+                    if(!claimedIds.isEmpty()) {
+                        logger.info("About to write {} claimed IDs to db for {}", claimedIds.size(), entityTypeName);
+                        insertIdsIgnoreDuplicates(entityTypeName, claimedIds, entityManager);
+                        persisted.addAndGet(claimedIds.size());
+                        claimedIds.destroy();
+                    } else {
+                        logger.debug("No claimed IDs to insert for {}", entityTypeName);
+                    }
+                }, entityManager);
+            } catch (Exception e) {
+              logger.warn("Error writing claimed IDs for {} in transaction", entityTypeName, e);
             }
         });
         if(persisted.get() > 0 ) {
             logger.info("Persisted {} claimed IDs", persisted);
         }
+    }
+
+    private void acquireAdvisoryTransactionLock(String entityTypeName, EntityManager entityManager) {
+        Query query = entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(?1, hashtext(?2))");
+        query.setParameter(1, ADVISORY_LOCK_NAMESPACE);
+        query.setParameter(2, entityTypeName);
+        query.getSingleResult();
     }
 
     /**
@@ -369,15 +355,6 @@ public class GaplessIdGeneratorService {
     private void rollbackAndThrow(EntityTransaction transaction, Exception e) {
         if (transaction != null && transaction.isActive()) transaction.rollback();
         throw new RuntimeException(e);
-    }
-
-    /**
-     * Helper method to generate the entiry lock string
-     * @param entityTypeName the entity name to use, for concurrency needs
-     * @return The entity lock string with prefix
-     */
-    public static String entityLockString(String entityTypeName) {
-        return REENTRANT_LOCK_PREFIX + entityTypeName;
     }
 
 }
