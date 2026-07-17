@@ -15,7 +15,6 @@
 
 package org.rutebanken.tiamat.importer.handler;
 
-import com.hazelcast.core.HazelcastInstance;
 import jakarta.xml.bind.JAXBElement;
 import org.apache.commons.lang3.NotImplementedException;
 import org.rutebanken.netex.model.ObjectFactory;
@@ -36,6 +35,7 @@ import org.rutebanken.tiamat.importer.matching.StopPlaceIdMatcher;
 import org.rutebanken.tiamat.importer.merging.TransactionalMergingStopPlacesImporter;
 import org.rutebanken.tiamat.importer.modifier.StopPlacePostFilterSteps;
 import org.rutebanken.tiamat.importer.modifier.StopPlacePreSteps;
+import org.rutebanken.tiamat.lock.TimeoutMaxLeaseTimeLock;
 import org.rutebanken.tiamat.model.StopPlace;
 import org.rutebanken.tiamat.netex.mapping.NetexMapper;
 import org.rutebanken.tiamat.netex.mapping.PublicationDeliveryHelper;
@@ -50,7 +50,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 
 @Component
@@ -59,7 +58,7 @@ public class StopPlaceImportHandler {
     private static final Logger logger = LoggerFactory.getLogger(StopPlaceImportHandler.class);
 
     /**
-     * Hazelcast lock key for stop place import.
+     * Lock key for stop place import.
      */
     private static final String STOP_PLACE_IMPORT_LOCK_KEY = "STOP_PLACE_IMPORT_LOCK_KEY";
 
@@ -105,7 +104,7 @@ public class StopPlaceImportHandler {
     private TopographicPlacesExporter topographicPlacesExporter;
 
     @Autowired
-    private HazelcastInstance hazelcastInstance;
+    private TimeoutMaxLeaseTimeLock timeoutMaxLeaseTimeLock;
 
     public void handleStops(SiteFrame netexSiteFrame, ImportParams importParams, AtomicInteger stopPlacesCreatedMatchedOrUpdated, SiteFrame responseSiteframe) {
         if (publicationDeliveryHelper.hasStops(netexSiteFrame)) {
@@ -155,21 +154,19 @@ public class StopPlaceImportHandler {
             if (importParams.importType != null && importParams.importType.equals(ImportType.ID_MATCH)) {
                 importedOrMatchedNetexStopPlaces = stopPlaceIdMatcher.matchStopPlaces(tiamatStops, stopPlacesCreatedMatchedOrUpdated);
             } else {
-                final Lock lock = hazelcastInstance.getCPSubsystem().getLock(STOP_PLACE_IMPORT_LOCK_KEY);
-                lock.lock();
-                try {
-                    if (importParams.importType == null || importParams.importType.equals(ImportType.MERGE)) {
-                        importedOrMatchedNetexStopPlaces = transactionalMergingStopPlacesImporter.importStopPlaces(tiamatStops, stopPlacesCreatedMatchedOrUpdated);
-                    } else if (importParams.importType.equals(ImportType.INITIAL)) {
-                        importedOrMatchedNetexStopPlaces = parallelInitialStopPlaceImporter.importStopPlaces(tiamatStops, stopPlacesCreatedMatchedOrUpdated);
-                    } else if (importParams.importType.equals(ImportType.MATCH)) {
-                        importedOrMatchedNetexStopPlaces = matchingAppendingIdStopPlacesImporter.importStopPlaces(tiamatStops, stopPlacesCreatedMatchedOrUpdated);
+                final List<StopPlace> stopsForImport = tiamatStops;
+                final ImportType importType = importParams.importType;
+                importedOrMatchedNetexStopPlaces = timeoutMaxLeaseTimeLock.executeInLock(() -> {
+                    if (importType == null || importType.equals(ImportType.MERGE)) {
+                        return transactionalMergingStopPlacesImporter.importStopPlaces(stopsForImport, stopPlacesCreatedMatchedOrUpdated);
+                    } else if (importType.equals(ImportType.INITIAL)) {
+                        return parallelInitialStopPlaceImporter.importStopPlaces(stopsForImport, stopPlacesCreatedMatchedOrUpdated);
+                    } else if (importType.equals(ImportType.MATCH)) {
+                        return matchingAppendingIdStopPlacesImporter.importStopPlaces(stopsForImport, stopPlacesCreatedMatchedOrUpdated);
                     } else {
-                        throw new NotImplementedException("Import type " + importParams.importType + " not implemented ");
+                        throw new NotImplementedException("Import type " + importType + " not implemented ");
                     }
-                } finally {
-                    lock.unlock();
-                }
+                }, STOP_PLACE_IMPORT_LOCK_KEY);
             }
 
             // Filter uniques by StopPlace.id#version

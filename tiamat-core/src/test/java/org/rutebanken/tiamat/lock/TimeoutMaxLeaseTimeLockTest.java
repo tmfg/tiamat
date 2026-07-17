@@ -15,7 +15,6 @@
 
 package org.rutebanken.tiamat.lock;
 
-import com.hazelcast.core.HazelcastInstance;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
 import org.rutebanken.tiamat.TiamatIntegrationTest;
@@ -23,7 +22,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.util.concurrent.atomic.AtomicBoolean;
+import javax.sql.DataSource;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 
 public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
@@ -33,19 +34,20 @@ public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
     private static final String TEST_LOCK_NAME = "test-lock-name";
 
     @Autowired
-    private HazelcastInstance hazelcastInstance;
+    private DataSource dataSource;
 
 
     @Test
     public void testWaitingForLock() throws InterruptedException {
-        TimeoutMaxLeaseTimeLock lock = new TimeoutMaxLeaseTimeLock(hazelcastInstance);
+        TimeoutMaxLeaseTimeLock lock = new TimeoutMaxLeaseTimeLock(dataSource);
+        String lockName = TEST_LOCK_NAME + "-wait";
 
         long sleep = 1000;
 
-        AtomicBoolean threadGotLock = new AtomicBoolean(false);
+        CountDownLatch threadGotLock = new CountDownLatch(1);
         Thread t1 = new Thread(() -> {
             lock.executeInLock(() -> {
-                threadGotLock.set(true);
+                threadGotLock.countDown();
                 try {
                     logger.info("Sleeping for " + sleep + " millis");
                     Thread.sleep(sleep);
@@ -55,14 +57,14 @@ public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
                     throw new RuntimeException(e);
                 }
 
-            }, TEST_LOCK_NAME);
+            }, lockName);
         });
         long started = System.currentTimeMillis();
         t1.start();
         // Make sure the thread gets the lock first
-        while (!threadGotLock.get()) {
-        }
-        long gotLock = lock.executeInLock(() -> System.currentTimeMillis(), TEST_LOCK_NAME);
+        Assertions.assertThat(threadGotLock.await(10, TimeUnit.SECONDS)).isTrue();
+        long gotLock = lock.executeInLock(() -> System.currentTimeMillis(), lockName);
+        t1.join();
 
         long waited = gotLock - started;
         Assertions.assertThat(waited)
@@ -74,16 +76,17 @@ public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
     public void testWaitingForLockTimeout() throws InterruptedException {
 
         int waitTimeoutSeconds = 1;
-        TimeoutMaxLeaseTimeLock timeoutMaxLeaseTimeLock = new TimeoutMaxLeaseTimeLock(hazelcastInstance);
+        TimeoutMaxLeaseTimeLock timeoutMaxLeaseTimeLock = new TimeoutMaxLeaseTimeLock(dataSource);
+        String lockName = TEST_LOCK_NAME + "-timeout";
 
         // Sleep more than the wait time to trigger exception
         long sleep = (waitTimeoutSeconds * 3 * 1000);
-        AtomicBoolean threadGotLock = new AtomicBoolean(false);
+        CountDownLatch threadGotLock = new CountDownLatch(1);
 
         Thread t1 = new Thread(() -> {
             timeoutMaxLeaseTimeLock.executeInLock(() -> {
                 try {
-                    threadGotLock.set(true);
+                    threadGotLock.countDown();
                     logger.info("Sleeping " + sleep + " millis");
                     Thread.sleep(sleep);
                     logger.info("Slept " + sleep + " millis");
@@ -92,7 +95,7 @@ public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
                     throw new RuntimeException(e);
                 }
 
-            }, TEST_LOCK_NAME, waitTimeoutSeconds, 10);
+            }, lockName, waitTimeoutSeconds, 10);
         });
 
         t1.start();
@@ -100,12 +103,63 @@ public class TimeoutMaxLeaseTimeLockTest extends TiamatIntegrationTest {
         logger.info("thread started");
 
         logger.info("Make sure the thread gets the lock first");
-        while (!threadGotLock.get()) {
-        }
+        Assertions.assertThat(threadGotLock.await(10, TimeUnit.SECONDS)).isTrue();
         logger.info("Thread did get the lock");
 
         logger.info("expecting exception");
         // Should throw exception because the wait time was too long
-        timeoutMaxLeaseTimeLock.executeInLock(() -> System.currentTimeMillis(), TEST_LOCK_NAME, waitTimeoutSeconds, 10);
+        timeoutMaxLeaseTimeLock.executeInLock(() -> System.currentTimeMillis(), lockName, waitTimeoutSeconds, 10);
+    }
+
+    @Test(expected = LockException.class)
+    public void concurrentWaiterTimesOutWhenLockIsHeld() throws InterruptedException {
+        TimeoutMaxLeaseTimeLock lock = new TimeoutMaxLeaseTimeLock(dataSource);
+        String lockName = TEST_LOCK_NAME + "-concurrent-timeout";
+        int waitTimeoutSeconds = 1;
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+
+        Thread holder = new Thread(() -> lock.executeInLock(() -> {
+            lockAcquired.countDown();
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        }, lockName));
+
+        holder.start();
+        lockAcquired.await();
+
+        lock.executeInLock(() -> null, lockName, waitTimeoutSeconds, 10);
+    }
+
+    @Test
+    public void lockIsReleasedWhenSupplierThrows() {
+        TimeoutMaxLeaseTimeLock lock = new TimeoutMaxLeaseTimeLock(dataSource);
+        String lockName = TEST_LOCK_NAME + "-released-on-failure";
+
+        try {
+            lock.executeInLock(() -> {
+                throw new RuntimeException("boom");
+            }, lockName);
+            Assertions.fail("Expected RuntimeException");
+        } catch (RuntimeException e) {
+            Assertions.assertThat(e.getMessage()).isEqualTo("boom");
+        }
+
+        long acquiredAt = lock.executeInLock(System::currentTimeMillis, lockName);
+        Assertions.assertThat(acquiredAt).isGreaterThan(0L);
+    }
+
+    @Test
+    public void nestedAcquireOnSameThreadIsReentrant() {
+        TimeoutMaxLeaseTimeLock lock = new TimeoutMaxLeaseTimeLock(dataSource);
+        String lockName = TEST_LOCK_NAME + "-reentrant";
+
+        Integer result = lock.executeInLock(() ->
+                lock.executeInLock(() -> 42, lockName), lockName);
+
+        Assertions.assertThat(result).isEqualTo(42);
     }
 }

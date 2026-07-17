@@ -15,7 +15,6 @@
 
 package org.rutebanken.tiamat.importer.handler;
 
-import com.hazelcast.core.HazelcastInstance;
 import org.rutebanken.netex.model.ParkingsInFrame_RelStructure;
 import org.rutebanken.netex.model.SiteFrame;
 import org.rutebanken.tiamat.importer.ImportParams;
@@ -23,6 +22,7 @@ import org.rutebanken.tiamat.importer.ImportType;
 import org.rutebanken.tiamat.importer.filter.ZoneTopographicPlaceFilter;
 import org.rutebanken.tiamat.importer.initial.ParallelInitialParkingImporter;
 import org.rutebanken.tiamat.importer.merging.TransactionalMergingParkingsImporter;
+import org.rutebanken.tiamat.lock.TimeoutMaxLeaseTimeLock;
 import org.rutebanken.tiamat.model.Parking;
 import org.rutebanken.tiamat.netex.mapping.NetexMapper;
 import org.rutebanken.tiamat.netex.mapping.PublicationDeliveryHelper;
@@ -35,7 +35,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
 
 @Component
 public class ParkingsImportHandler {
@@ -43,7 +42,7 @@ public class ParkingsImportHandler {
     private static final Logger logger = LoggerFactory.getLogger(ParkingsImportHandler.class);
 
     /**
-     * Hazelcast lock key for merging stop place import.
+     * Lock key for merging parking import.
      */
     private static final String PARKING_IMPORT_LOCK_KEY = "STOP_PLACE_MERGING_IMPORT_LOCK_KEY";
 
@@ -63,7 +62,7 @@ public class ParkingsImportHandler {
     private ParallelInitialParkingImporter parallelInitialParkingImporter;
 
     @Autowired
-    private HazelcastInstance hazelcastInstance;
+    private TimeoutMaxLeaseTimeLock timeoutMaxLeaseTimeLock;
 
     public void handleParkings(SiteFrame netexSiteFrame, ImportParams importParams, AtomicInteger parkingsCreatedOrUpdated, SiteFrame responseSiteframe) {
 
@@ -87,13 +86,10 @@ public class ParkingsImportHandler {
             Collection<org.rutebanken.netex.model.Parking> importedParkings;
 
             if (importParams.importType == null || importParams.importType.equals(ImportType.MERGE)) {
-                final Lock lock = hazelcastInstance.getCPSubsystem().getLock(PARKING_IMPORT_LOCK_KEY);
-                lock.lock();
-                try {
-                    importedParkings = transactionalMergingParkingsImporter.importParkings(tiamatParking, parkingsCreatedOrUpdated);
-                } finally {
-                    lock.unlock();
-                }
+                final List<Parking> parkingsForImport = tiamatParking;
+                importedParkings = timeoutMaxLeaseTimeLock.executeInLock(
+                        () -> transactionalMergingParkingsImporter.importParkings(parkingsForImport, parkingsCreatedOrUpdated),
+                        PARKING_IMPORT_LOCK_KEY);
             } else if (importParams.importType.equals(ImportType.INITIAL)) {
                 importedParkings = parallelInitialParkingImporter.importParkings(tiamatParking, parkingsCreatedOrUpdated);
             } else {
