@@ -31,6 +31,7 @@ import org.rutebanken.tiamat.model.AssistanceFacilityEnumeration;
 import org.rutebanken.tiamat.model.BoardingPositionTypeEnumeration;
 import org.rutebanken.tiamat.model.BusSubmodeEnumeration;
 import org.rutebanken.tiamat.model.CycleStorageEnumeration;
+import org.rutebanken.tiamat.model.EntranceEnumeration;
 import org.rutebanken.tiamat.model.FunicularSubmodeEnumeration;
 import org.rutebanken.tiamat.model.GenderLimitationEnumeration;
 import org.rutebanken.tiamat.model.InstalledEquipment_VersionStructure;
@@ -108,6 +109,7 @@ public class CustomGraphQLTypes {
     public static GraphQLEnumType parkingReservationEnum = createCustomEnumType(PARKING_RESERVATION_ENUM, ParkingReservationEnumeration.class);
     public static GraphQLEnumType parkingPaymentProcessEnum = createCustomEnumType(PARKING_PAYMENT_PROCESS_ENUM, ParkingPaymentProcessEnumeration.class);
     public static GraphQLEnumType parkingTypeEnum = createCustomEnumType(PARKING_TYPE_ENUM, ParkingTypeEnumeration.class);
+    public static GraphQLEnumType entranceTypeEnum = createCustomEnumType(ENTRANCE_TYPE_ENUM, EntranceEnumeration.class);
     public static GraphQLEnumType topographicPlaceTypeEnum = createCustomEnumType(TOPOGRAPHIC_PLACE_TYPE_ENUM, TopographicPlaceTypeEnumeration.class);
     public static GraphQLEnumType stopPlaceTypeEnum = createCustomEnumType(STOP_PLACE_TYPE_ENUM, StopTypeEnumeration.class);
     public static GraphQLEnumType submodeEnum = createCustomEnumType(SUBMODE_ENUM, SubmodeEnumuration.class);
@@ -953,6 +955,58 @@ public class CustomGraphQLTypes {
                     .type(parkingPropertiesInputObjectType))
             .build();
 
+    public static GraphQLObjectType vehicleEntranceObjectType = newObject()
+            .name(OUTPUT_TYPE_VEHICLE_ENTRANCE)
+            .field(netexIdFieldDefinition)
+            .field(newFieldDefinition()
+                    .name(NAME)
+                    .type(embeddableMultilingualStringObjectType))
+            .field(newFieldDefinition()
+                    .name(LABEL)
+                    .type(embeddableMultilingualStringObjectType))
+            .field(newFieldDefinition()
+                    .name(PUBLIC_CODE)
+                    .type(GraphQLString))
+            .field(newFieldDefinition()
+                    .name(ENTRANCE_TYPE)
+                    .type(entranceTypeEnum))
+            .field(newFieldDefinition()
+                    .name(IS_ENTRY)
+                    .type(GraphQLBoolean))
+            .field(newFieldDefinition()
+                    .name(IS_EXIT)
+                    .type(GraphQLBoolean))
+            .field(geometryFieldDefinition)
+            .build();
+
+    public static GraphQLInputObjectType vehicleEntranceInputObjectType = GraphQLInputObjectType.newInputObject()
+            .name(INPUT_TYPE_VEHICLE_ENTRANCE)
+            .field(newInputObjectField()
+                    .name(ID)
+                    .type(GraphQLString))
+            .field(newInputObjectField()
+                    .name(NAME)
+                    .type(embeddableMultiLingualStringInputObjectType))
+            .field(newInputObjectField()
+                    .name(LABEL)
+                    .type(embeddableMultiLingualStringInputObjectType))
+            .field(newInputObjectField()
+                    .name(PUBLIC_CODE)
+                    .type(GraphQLString))
+            .field(newInputObjectField()
+                    .name(ENTRANCE_TYPE)
+                    .type(entranceTypeEnum))
+            .field(newInputObjectField()
+                    .name(IS_ENTRY)
+                    .type(GraphQLBoolean))
+            .field(newInputObjectField()
+                    .name(IS_EXIT)
+                    .type(GraphQLBoolean))
+            .field(newInputObjectField()
+                    .name(GEOMETRY)
+                    .type(geoJsonInputType))
+            .build();
+
     public static GraphQLObjectType postalAddressObjectType = GraphQLObjectType.newObject()
             .name(OUTPUT_TYPE_POSTAL_ADDRESS)
             .field(newFieldDefinition()
@@ -1054,6 +1108,9 @@ public class CustomGraphQLTypes {
                 .field(newFieldDefinition()
                         .name(PARKING_AREAS)
                         .type(new GraphQLList(parkingAreaObjectType)))
+                .field(newFieldDefinition()
+                        .name(VEHICLE_ENTRANCES)
+                        .type(new GraphQLList(vehicleEntranceObjectType)))
                 .field(geometryFieldDefinition)
                 .field(newFieldDefinition()
                         .name(ACCESSIBILITY_ASSESSMENT)
@@ -1122,6 +1179,9 @@ public class CustomGraphQLTypes {
                 .field(newInputObjectField()
                         .name(PARKING_AREAS)
                         .type(new GraphQLList(parkingAreaInputObjectType)))
+                .field(newInputObjectField()
+                        .name(VEHICLE_ENTRANCES)
+                        .type(new GraphQLList(vehicleEntranceInputObjectType)))
                 .field(newInputObjectField()
                         .name(GEOMETRY)
                         .type(geoJsonInputType))

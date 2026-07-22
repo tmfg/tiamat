@@ -21,6 +21,7 @@ import org.locationtech.jts.geom.Point;
 import org.rutebanken.tiamat.TiamatIntegrationTest;
 import org.rutebanken.tiamat.model.EmbeddableMultilingualString;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
 import org.rutebanken.tiamat.model.ParkingTypeEnumeration;
 import org.rutebanken.tiamat.model.ParkingVehicleEnumeration;
 import org.rutebanken.tiamat.model.SiteRefStructure;
@@ -257,6 +258,45 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
         assertThat(parking.getParkingVehicleTypes()).containsAll(Arrays.asList(ParkingVehicleEnumeration.CAR, ParkingVehicleEnumeration.PEDAL_CYCLE));
     }
 
+    @Test
+    public void vehicleEntranceChangesCreateNewParkingVersion() throws ExecutionException, InterruptedException {
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        Parking firstParking = createParking("Entrance parking", 10.78, 60.000, null);
+        firstParking.setParkingType(ParkingTypeEnumeration.PARK_AND_RIDE);
+        firstParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        firstParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:1", "North", true, false));
+        firstParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:2", "South", false, true));
+
+        Parking firstImportResult = mergingParkingImporter.importParkingWithoutNetexMapping(firstParking);
+
+        Parking unchangedParking = createParking("Entrance parking", 10.78, 60.000, null);
+        unchangedParking.setParkingType(ParkingTypeEnumeration.PARK_AND_RIDE);
+        unchangedParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        unchangedParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:1", "North", true, false));
+        unchangedParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:2", "South", false, true));
+
+        Parking unchangedImportResult = mergingParkingImporter.importParkingWithoutNetexMapping(unchangedParking);
+
+        assertThat(unchangedImportResult.getNetexId()).isEqualTo(firstImportResult.getNetexId());
+        assertThat(unchangedImportResult.getVersion()).isEqualTo(firstImportResult.getVersion());
+        assertThat(unchangedImportResult.getVehicleEntrances()).hasSize(2);
+
+        Parking changedParking = createParking("Entrance parking", 10.78, 60.000, null);
+        changedParking.setParkingType(ParkingTypeEnumeration.PARK_AND_RIDE);
+        changedParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        changedParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:1", "North", true, false));
+        changedParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:2", "South", false, true));
+        changedParking.getVehicleEntrances().add(createVehicleEntrance("NSR:ParkingEntranceForVehicles:3", "East", true, true));
+
+        Parking changedImportResult = mergingParkingImporter.importParkingWithoutNetexMapping(changedParking);
+
+        assertThat(changedImportResult.getNetexId()).isEqualTo(firstImportResult.getNetexId());
+        assertThat(changedImportResult.getVersion()).isGreaterThan(firstImportResult.getVersion());
+        assertThat(changedImportResult.getVehicleEntrances()).hasSize(3);
+    }
+
     private Point point(double longitude, double latitude) {
         return
                 geometryFactory.createPoint(
@@ -269,6 +309,16 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
         parking.setName(new EmbeddableMultilingualString(name, ""));
         parking.setNetexId(stopPlaceId);
         return parking;
+    }
+
+    private ParkingEntranceForVehicles createVehicleEntrance(String netexId, String name, boolean isEntry, boolean isExit) {
+        ParkingEntranceForVehicles entrance = new ParkingEntranceForVehicles();
+        entrance.setNetexId(netexId);
+        entrance.setName(new EmbeddableMultilingualString(name, "en"));
+        entrance.setIsEntry(isEntry);
+        entrance.setIsExit(isExit);
+        entrance.setCentroid(point(10.78, 60.00));
+        return entrance;
     }
 
 }

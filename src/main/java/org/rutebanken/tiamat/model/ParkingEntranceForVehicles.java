@@ -15,6 +15,11 @@
 
 package org.rutebanken.tiamat.model;
 
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "parking_entrance_for_vehicles")
 public class ParkingEntranceForVehicles
         extends ParkingEntranceForVehicles__VersionStructure {
 

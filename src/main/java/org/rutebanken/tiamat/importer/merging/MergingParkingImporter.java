@@ -20,6 +20,7 @@ import org.rutebanken.tiamat.importer.finder.NearbyParkingFinder;
 import org.rutebanken.tiamat.importer.finder.ParkingFromOriginalIdFinder;
 import org.rutebanken.tiamat.model.DataManagedObjectStructure;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
 import org.rutebanken.tiamat.model.factory.ParkingEntityFactory;
 import org.rutebanken.tiamat.netex.mapping.NetexMapper;
 import org.rutebanken.tiamat.netex.mapping.mapper.NetexIdMapper;
@@ -34,6 +35,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 
 import static org.rutebanken.tiamat.netex.mapping.mapper.NetexIdMapper.ORIGINAL_ID_KEY;
@@ -178,8 +182,9 @@ public class MergingParkingImporter {
 
 
         boolean extendedFieldsChanged = mergeExtendedFields(incomingParking, copy);
+        boolean vehicleEntrancesChanged = mergeVehicleEntrances(incomingParking, copy);
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || extendedFieldsChanged) {
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || vehicleEntrancesChanged || extendedFieldsChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);
@@ -201,6 +206,66 @@ public class MergingParkingImporter {
      */
     protected boolean mergeExtendedFields(Parking incomingParking, Parking copy) {
         return false;
+    }
+
+    private boolean mergeVehicleEntrances(Parking incomingParking, Parking copy) {
+        if (sameVehicleEntrances(copy.getVehicleEntrances(), incomingParking.getVehicleEntrances())) {
+            return false;
+        }
+        copy.setVehicleEntrances(cloneVehicleEntrances(incomingParking.getVehicleEntrances()));
+        logger.info("Updated vehicleEntrances to {} for parking {}", copy.getVehicleEntrances(), copy);
+        return true;
+    }
+
+    private boolean sameVehicleEntrances(List<ParkingEntranceForVehicles> existing, List<ParkingEntranceForVehicles> incoming) {
+        List<ParkingEntranceForVehicles> existingList = existing == null ? List.of() : existing;
+        List<ParkingEntranceForVehicles> incomingList = incoming == null ? List.of() : incoming;
+        if (existingList.size() != incomingList.size()) {
+            return false;
+        }
+        for (int i = 0; i < existingList.size(); i++) {
+            if (!sameVehicleEntrance(existingList.get(i), incomingList.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean sameVehicleEntrance(ParkingEntranceForVehicles left, ParkingEntranceForVehicles right) {
+        return Objects.equals(left.getNetexId(), right.getNetexId()) &&
+                Objects.equals(left.getName(), right.getName()) &&
+                Objects.equals(left.getPublicCode(), right.getPublicCode()) &&
+                Objects.equals(left.getEntranceType(), right.getEntranceType()) &&
+                Objects.equals(left.isIsEntry(), right.isIsEntry()) &&
+                Objects.equals(left.isIsExit(), right.isIsExit()) &&
+                Objects.equals(left.getCentroid(), right.getCentroid());
+    }
+
+    private List<ParkingEntranceForVehicles> cloneVehicleEntrances(List<ParkingEntranceForVehicles> vehicleEntrances) {
+        List<ParkingEntranceForVehicles> result = new ArrayList<>();
+        if (vehicleEntrances != null) {
+            vehicleEntrances.forEach(entrance -> result.add(cloneVehicleEntrance(entrance)));
+        }
+        return result;
+    }
+
+    private ParkingEntranceForVehicles cloneVehicleEntrance(ParkingEntranceForVehicles source) {
+        ParkingEntranceForVehicles copy = new ParkingEntranceForVehicles();
+        copy.setNetexId(source.getNetexId());
+        copy.setVersion(source.getVersion());
+        copy.setName(source.getName());
+        copy.setPublicCode(source.getPublicCode());
+        copy.setLabel(source.getLabel());
+        copy.setEntranceType(source.getEntranceType());
+        copy.setIsExternal(source.isIsExternal());
+        copy.setIsEntry(source.isIsEntry());
+        copy.setIsExit(source.isIsExit());
+        copy.setWidth(source.getWidth());
+        copy.setHeight(source.getHeight());
+        copy.setDroppedKerbOutside(source.isDroppedKerbOutside());
+        copy.setDropOffPointClose(source.isDropOffPointClose());
+        copy.setCentroid(source.getCentroid());
+        return copy;
     }
 
     private Parking updateCache(Parking parking) {

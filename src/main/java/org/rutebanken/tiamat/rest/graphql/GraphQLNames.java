@@ -228,6 +228,9 @@ public class GraphQLNames {
     public static final String OUTPUT_TYPE_PARKING_AREA = "ParkingArea";
     public static final String INPUT_TYPE_PARKING_AREA = OUTPUT_TYPE_PARKING_AREA + INPUT_TYPE_POSTFIX;
 
+    public static final String OUTPUT_TYPE_VEHICLE_ENTRANCE = "VehicleEntrance";
+    public static final String INPUT_TYPE_VEHICLE_ENTRANCE = OUTPUT_TYPE_VEHICLE_ENTRANCE + INPUT_TYPE_POSTFIX;
+
 
     public static final String GEOMETRY_TYPE_ENUM = "GeoJSONType";
 
@@ -247,6 +250,7 @@ public class GraphQLNames {
     public static final String PARKING_PAYMENT_PROCESS_ENUM = "ParkingPaymentProcessType";
     public static final String PARKING_USER_ENUM = "ParkingUserType";
     public static final String PARKING_STAY_TYPE_ENUM = "ParkingStayType";
+    public static final String ENTRANCE_TYPE_ENUM = "EntranceType";
 
     public static final String ID = "id";
     public static final String IDS = "ids";
@@ -453,6 +457,7 @@ public class GraphQLNames {
     public static final String PARKING_PROPERTIES = "parkingProperties";
     public static final String PARKING_LAYOUT = "parkingLayout";
     public static final String PARKING_AREAS = "parkingAreas";
+    public static final String VEHICLE_ENTRANCES = "vehicleEntrances";
     public static final String PRINCIPAL_CAPACITY = "principalCapacity";
     public static final String OVERNIGHT_PARKING_PERMITTED = "overnightParkingPermitted";
     public static final String RECHARGING_AVAILABLE = "rechargingAvailable";
@@ -463,6 +468,9 @@ public class GraphQLNames {
     public static final String FREE_PARKING_OUT_OF_HOURS = "freeParkingOutOfHours";
     public static final String PARKING_PAYMENT_PROCESS = "parkingPaymentProcess";
     public static final String LABEL = "label";
+    public static final String ENTRANCE_TYPE = "entranceType";
+    public static final String IS_ENTRY = "isEntry";
+    public static final String IS_EXIT = "isExit";
     public static final String PARENT_SITE_REF = "parentSiteRef";
 
     public static final String VALID_TRANSPORT_MODES = "validTransportModes";

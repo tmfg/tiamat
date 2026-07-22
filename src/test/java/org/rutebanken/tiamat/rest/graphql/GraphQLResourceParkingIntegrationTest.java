@@ -455,5 +455,70 @@ public class GraphQLResourceParkingIntegrationTest extends AbstractGraphQLResour
 
     }
 
+    @Test
+    public void mutateAndQueryParkingVehicleEntrancesAndPreserveWhenOmitted() throws Exception {
+        StopPlace stopPlace = stopPlaceRepository.save(new StopPlace());
+
+        String createMutation = "{\n" +
+                "\"query\": \"mutation { " +
+                "  parking: " + GraphQLNames.MUTATE_PARKING + " (Parking : {" +
+                "     name: { value: \\\"Vehicle entrance parking\\\" lang: \\\"en\\\" }" +
+                "     parentSiteRef:\\\"%s\\\"".formatted(stopPlace.getNetexId()) +
+                "     geometry: { type:Point coordinates:[60.0, 10.0] }" +
+                "     vehicleEntrances: [{" +
+                "       id: \\\"NSR:ParkingEntranceForVehicles:1\\\"" +
+                "       name: { value: \\\"North entrance\\\" lang: \\\"en\\\" }" +
+                "       publicCode: \\\"N\\\"" +
+                "       isEntry: true" +
+                "       isExit: false" +
+                "       geometry: { type:Point coordinates:[60.1, 10.1] }" +
+                "     }]" +
+                "}) {" +
+                "    id version vehicleEntrances { id name { value lang } publicCode isEntry isExit geometry { type coordinates } }" +
+                "  }" +
+                "}\",\"variables\": \"\"}";
+
+        String parkingId = executeGraphQL(createMutation)
+                .body("data.parking", notNullValue())
+                .body("data.parking[0].vehicleEntrances", hasSize(1))
+                .body("data.parking[0].vehicleEntrances[0].id", equalTo("NSR:ParkingEntranceForVehicles:1"))
+                .body("data.parking[0].vehicleEntrances[0].name.value", equalTo("North entrance"))
+                .body("data.parking[0].vehicleEntrances[0].publicCode", equalTo("N"))
+                .body("data.parking[0].vehicleEntrances[0].isEntry", equalTo(true))
+                .body("data.parking[0].vehicleEntrances[0].isExit", equalTo(false))
+                .body("data.parking[0].vehicleEntrances[0].geometry.type", equalTo("Point"))
+                .extract()
+                .path("data.parking[0].id");
+
+        String updateWithoutEntrances = "{\n" +
+                "\"query\": \"mutation { " +
+                "  parking: " + GraphQLNames.MUTATE_PARKING + " (Parking : {" +
+                "     id:\\\"%s\\\"".formatted(parkingId) +
+                "     parkingType: parkAndRide" +
+                "}) {" +
+                "    id version parkingType vehicleEntrances { id name { value } publicCode isEntry isExit }" +
+                "  }" +
+                "}\",\"variables\": \"\"}";
+
+        executeGraphQL(updateWithoutEntrances)
+                .body("data.parking[0].version", equalTo("2"))
+                .body("data.parking[0].vehicleEntrances", hasSize(1))
+                .body("data.parking[0].vehicleEntrances[0].id", equalTo("NSR:ParkingEntranceForVehicles:1"))
+                .body("data.parking[0].vehicleEntrances[0].name.value", equalTo("North entrance"));
+
+        String query = "{" +
+                "\"query\":\"{" +
+                "  parking: " + GraphQLNames.FIND_PARKING + " (id:\\\"" + parkingId + "\\\") { " +
+                "    id vehicleEntrances { id name { value } publicCode isEntry isExit } " +
+                "  } " +
+                "}\"," +
+                "\"variables\":\"\"}";
+
+        executeGraphQL(query)
+                .body("data.parking[0].vehicleEntrances", hasSize(1))
+                .body("data.parking[0].vehicleEntrances[0].id", equalTo("NSR:ParkingEntranceForVehicles:1"))
+                .body("data.parking[0].vehicleEntrances[0].publicCode", equalTo("N"));
+    }
+
 
 }

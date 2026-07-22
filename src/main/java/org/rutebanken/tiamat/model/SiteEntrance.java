@@ -15,13 +15,21 @@
 
 package org.rutebanken.tiamat.model;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.OneToOne;
+
 import java.math.BigDecimal;
 
-
+@MappedSuperclass
 public class SiteEntrance extends SiteComponent_VersionStructure {
 
     protected String publicCode;
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true)
     protected MultilingualStringEntity label;
+    @Enumerated(EnumType.STRING)
     protected EntranceEnumeration entranceType;
     protected Boolean isExternal;
     protected Boolean isEntry;

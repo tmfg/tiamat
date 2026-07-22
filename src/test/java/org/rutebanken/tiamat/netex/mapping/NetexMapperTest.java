@@ -22,8 +22,11 @@ import org.locationtech.jts.geom.Coordinate;
 import org.rutebanken.netex.model.AccessibilityLimitations_RelStructure;
 import org.rutebanken.netex.model.KeyListStructure;
 import org.rutebanken.netex.model.KeyValueStructure;
+import org.rutebanken.netex.model.LocationStructure;
 import org.rutebanken.netex.model.MultilingualString;
 import org.rutebanken.netex.model.ObjectFactory;
+import org.rutebanken.netex.model.ParkingEntrancesForVehicles_RelStructure;
+import org.rutebanken.netex.model.SimplePoint_VersionStructure;
 import org.rutebanken.netex.model.SiteRefs_RelStructure;
 import org.rutebanken.netex.model.TopographicPlacesInFrame_RelStructure;
 import org.rutebanken.tiamat.TiamatIntegrationTest;
@@ -40,6 +43,7 @@ import org.rutebanken.tiamat.model.LightingEnumeration;
 import org.rutebanken.tiamat.model.LimitationStatusEnumeration;
 import org.rutebanken.tiamat.model.NameTypeEnumeration;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
 import org.rutebanken.tiamat.model.PathLink;
 import org.rutebanken.tiamat.model.PathLinkEnd;
 import org.rutebanken.tiamat.model.Quay;
@@ -61,6 +65,7 @@ import org.rutebanken.tiamat.netex.mapping.PublicationDeliveryHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import ma.glasnost.orika.Converter;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -696,6 +701,62 @@ public class NetexMapperTest extends TiamatIntegrationTest {
         assertThat(tiamatParking.getPaymentMethods())
                 .as("paymentMethods should be excluded from mapping by default")
                 .isEmpty();
+    }
+
+    @Test
+    public void parkingVehicleEntrancesSurviveNetexRoundTrip() {
+        org.rutebanken.netex.model.Parking netexParking = new org.rutebanken.netex.model.Parking();
+        org.rutebanken.netex.model.ParkingEntranceForVehicles netexEntrance =
+                new org.rutebanken.netex.model.ParkingEntranceForVehicles();
+        netexEntrance.setId("NSR:ParkingEntranceForVehicles:1");
+        netexEntrance.setName(new MultilingualString().withValue("Main vehicle entrance").withLang("en"));
+        netexEntrance.setIsEntry(true);
+        netexEntrance.setIsExit(false);
+        netexEntrance.setCentroid(new SimplePoint_VersionStructure()
+                .withLocation(new LocationStructure()
+                        .withLongitude(BigDecimal.valueOf(10.123456))
+                        .withLatitude(BigDecimal.valueOf(60.123456))));
+
+        ParkingEntrancesForVehicles_RelStructure relStructure = new ParkingEntrancesForVehicles_RelStructure();
+        relStructure.getParkingEntranceForVehiclesRefOrParkingEntranceForVehicles()
+                .add(new ObjectFactory().createParkingEntranceForVehicles(netexEntrance));
+        netexParking.setVehicleEntrances(relStructure);
+
+        Parking tiamatParking = netexMapper.mapToTiamatModel(netexParking);
+
+        assertThat(tiamatParking.getVehicleEntrances()).hasSize(1);
+        ParkingEntranceForVehicles tiamatEntrance = tiamatParking.getVehicleEntrances().getFirst();
+        assertThat(tiamatEntrance.getNetexId()).isEqualTo(netexEntrance.getId());
+        assertThat(tiamatEntrance.getName().getValue()).isEqualTo("Main vehicle entrance");
+        assertThat(tiamatEntrance.isIsEntry()).isTrue();
+        assertThat(tiamatEntrance.isIsExit()).isFalse();
+        assertThat(tiamatEntrance.getCentroid().getX()).isEqualTo(10.123456);
+        assertThat(tiamatEntrance.getCentroid().getY()).isEqualTo(60.123456);
+
+        org.rutebanken.netex.model.Parking roundTripped = netexMapper.mapToNetexModel(tiamatParking);
+
+        assertThat(roundTripped.getVehicleEntrances()).isNotNull();
+        Object wrappedEntrance = roundTripped.getVehicleEntrances()
+                .getParkingEntranceForVehiclesRefOrParkingEntranceForVehicles()
+                .getFirst();
+        org.rutebanken.netex.model.ParkingEntranceForVehicles exportedEntrance =
+                (org.rutebanken.netex.model.ParkingEntranceForVehicles) ((JAXBElement<?>) wrappedEntrance).getValue();
+        assertThat(exportedEntrance.getId()).isEqualTo(netexEntrance.getId());
+        assertThat(exportedEntrance.getName().getValue()).isEqualTo("Main vehicle entrance");
+        assertThat(exportedEntrance.isIsEntry()).isTrue();
+        assertThat(exportedEntrance.isIsExit()).isFalse();
+        assertThat(exportedEntrance.getCentroid().getLocation().getLongitude()).isEqualByComparingTo("10.123456");
+        assertThat(exportedEntrance.getCentroid().getLocation().getLatitude()).isEqualByComparingTo("60.123456");
+    }
+
+    @Test
+    public void emptyParkingVehicleEntrancesRelStructureMapsToEmptyList() {
+        org.rutebanken.netex.model.Parking netexParking = new org.rutebanken.netex.model.Parking();
+        netexParking.setVehicleEntrances(new ParkingEntrancesForVehicles_RelStructure());
+
+        Parking tiamatParking = netexMapper.mapToTiamatModel(netexParking);
+
+        assertThat(tiamatParking.getVehicleEntrances()).isEmpty();
     }
 
     @Test

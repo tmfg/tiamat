@@ -22,7 +22,9 @@ import org.rutebanken.netex.model.ObjectFactory;
 import org.rutebanken.netex.model.Parking;
 import org.rutebanken.netex.model.ParkingArea;
 import org.rutebanken.netex.model.ParkingAreas_RelStructure;
+import org.rutebanken.netex.model.ParkingEntrancesForVehicles_RelStructure;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class ParkingMapper<P extends org.rutebanken.tiamat.model.Parking> extends CustomMapper<Parking, P> {
@@ -43,6 +45,18 @@ public class ParkingMapper<P extends org.rutebanken.tiamat.model.Parking> extend
             if (!parkingAreas.isEmpty()) {
                 parking2.setParkingAreas(parkingAreas);
             }
+        }
+        if (parking.getVehicleEntrances() != null &&
+                parking.getVehicleEntrances().getParkingEntranceForVehiclesRefOrParkingEntranceForVehicles() != null) {
+            List<org.rutebanken.tiamat.model.ParkingEntranceForVehicles> vehicleEntrances = parking.getVehicleEntrances()
+                    .getParkingEntranceForVehiclesRefOrParkingEntranceForVehicles()
+                    .stream()
+                    .map(this::unwrapJaxbElement)
+                    .filter(org.rutebanken.netex.model.ParkingEntranceForVehicles.class::isInstance)
+                    .map(org.rutebanken.netex.model.ParkingEntranceForVehicles.class::cast)
+                    .map(e -> mapperFacade.map(e, org.rutebanken.tiamat.model.ParkingEntranceForVehicles.class, context))
+                    .toList();
+            parking2.setVehicleEntrances(new ArrayList<>(vehicleEntrances));
         }
         contributors.forEach(c -> c.mapFromNetex(parking, parking2, context));
     }
@@ -65,6 +79,27 @@ public class ParkingMapper<P extends org.rutebanken.tiamat.model.Parking> extend
                 netexParking.setParkingAreas(parkingAreas_relStructure);
             }
         }
+        if (tiamatParking.getVehicleEntrances() != null &&
+                !tiamatParking.getVehicleEntrances().isEmpty()) {
+
+            List<org.rutebanken.netex.model.ParkingEntranceForVehicles> vehicleEntrances =
+                    mapperFacade.mapAsList(tiamatParking.getVehicleEntrances(), org.rutebanken.netex.model.ParkingEntranceForVehicles.class, context);
+            final List<JAXBElement<org.rutebanken.netex.model.ParkingEntranceForVehicles>> wrappedVehicleEntrances = vehicleEntrances.stream()
+                    .map(ve -> new ObjectFactory().createParkingEntranceForVehicles(ve))
+                    .toList();
+
+            ParkingEntrancesForVehicles_RelStructure vehicleEntrancesRelStructure = new ParkingEntrancesForVehicles_RelStructure();
+            vehicleEntrancesRelStructure.getParkingEntranceForVehiclesRefOrParkingEntranceForVehicles().addAll(wrappedVehicleEntrances);
+
+            netexParking.setVehicleEntrances(vehicleEntrancesRelStructure);
+        }
         contributors.forEach(c -> c.mapToNetex(tiamatParking, netexParking, context));
+    }
+
+    private Object unwrapJaxbElement(Object value) {
+        if (value instanceof JAXBElement<?> element) {
+            return element.getValue();
+        }
+        return value;
     }
 }

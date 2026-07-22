@@ -23,11 +23,14 @@ import org.rutebanken.tiamat.auth.AuthorizationService;
 import org.rutebanken.tiamat.model.AccessibilityAssessment;
 import org.rutebanken.tiamat.model.AccessibilityLimitation;
 import org.rutebanken.tiamat.model.EmbeddableMultilingualString;
+import org.rutebanken.tiamat.model.EntranceEnumeration;
 import org.rutebanken.tiamat.model.LimitationStatusEnumeration;
+import org.rutebanken.tiamat.model.MultilingualStringEntity;
 import org.rutebanken.tiamat.model.Parking;
 import org.rutebanken.tiamat.model.factory.ParkingEntityFactory;
 import org.rutebanken.tiamat.model.ParkingArea;
 import org.rutebanken.tiamat.model.ParkingCapacity;
+import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
 import org.rutebanken.tiamat.model.ParkingLayoutEnumeration;
 import org.rutebanken.tiamat.model.ParkingPaymentProcessEnumeration;
 import org.rutebanken.tiamat.model.ParkingProperties;
@@ -60,9 +63,12 @@ import java.util.stream.Collectors;
 
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.ACCESSIBILITY_ASSESSMENT;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.BOOKING_URL;
+import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.ENTRANCE_TYPE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.FREE_PARKING_OUT_OF_HOURS;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.GEOMETRY;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.ID;
+import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.IS_ENTRY;
+import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.IS_EXIT;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.LABEL;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.NAME;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.NUMBER_OF_SPACES;
@@ -81,12 +87,14 @@ import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.PARKING_USER_TYPE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.PARKING_VEHICLE_TYPE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.PARKING_VEHICLE_TYPES;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.PRINCIPAL_CAPACITY;
+import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.PUBLIC_CODE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.REAL_TIME_OCCUPANCY_AVAILABLE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.RECHARGING_AVAILABLE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.SECURE;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.SPACES;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.TOTAL_CAPACITY;
 import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.VALID_BETWEEN;
+import static org.rutebanken.tiamat.rest.graphql.GraphQLNames.VEHICLE_ENTRANCES;
 import static org.rutebanken.tiamat.rest.graphql.mappers.EmbeddableMultilingualStringMapper.getEmbeddableString;
 
 @Service("parkingUpdater")
@@ -292,6 +300,12 @@ public class ParkingUpdater implements DataFetcher {
             updatedParking.setParkingAreas(parkingAreasList);
         }
 
+        if (input.get(VEHICLE_ENTRANCES) != null) {
+            List<ParkingEntranceForVehicles> vehicleEntrancesList = resolveVehicleEntrancesList((List) input.get(VEHICLE_ENTRANCES));
+            isUpdated = true;
+            updatedParking.setVehicleEntrances(vehicleEntrancesList);
+        }
+
         if (input.get(ACCESSIBILITY_ASSESSMENT) != null) {
             Map<String, Object> accessibilityAssessmentInput = (Map) input.get(ACCESSIBILITY_ASSESSMENT);
             AccessibilityLimitation limitationFromInput = accessibilityLimitationMapper.map((Map<String, LimitationStatusEnumeration>) accessibilityAssessmentInput.get("limitations"));
@@ -387,6 +401,35 @@ public class ParkingUpdater implements DataFetcher {
         area.setTotalCapacity((BigInteger) input.get(TOTAL_CAPACITY));
         area.setParkingProperties(resolveSingleParkingProperties((Map) input.get(PARKING_PROPERTIES)));
         return area;
+    }
+
+    private List<ParkingEntranceForVehicles> resolveVehicleEntrancesList(List list) {
+        List<ParkingEntranceForVehicles> result = new ArrayList<>();
+        for (Object property : list) {
+            result.add(resolveSingleVehicleEntrance((Map) property));
+        }
+
+        return result;
+    }
+
+    private ParkingEntranceForVehicles resolveSingleVehicleEntrance(Map input) {
+        ParkingEntranceForVehicles entrance = new ParkingEntranceForVehicles();
+        entrance.setNetexId((String) input.get(ID));
+        if (input.get(NAME) != null) {
+            entrance.setName(getEmbeddableString((Map) input.get(NAME)));
+        }
+        if (input.get(LABEL) != null) {
+            EmbeddableMultilingualString label = getEmbeddableString((Map) input.get(LABEL));
+            entrance.setLabel(new MultilingualStringEntity(label.getValue(), label.getLang()));
+        }
+        entrance.setPublicCode((String) input.get(PUBLIC_CODE));
+        entrance.setEntranceType((EntranceEnumeration) input.get(ENTRANCE_TYPE));
+        entrance.setIsEntry((Boolean) input.get(IS_ENTRY));
+        entrance.setIsExit((Boolean) input.get(IS_EXIT));
+        if (input.get(GEOMETRY) != null) {
+            entrance.setCentroid(geometryMapper.createGeoJsonPoint((Map) input.get(GEOMETRY)));
+        }
+        return entrance;
     }
 
     private AccessibilityAssessment resolveAccessibilityAssessment(AccessibilityLimitation limitationFromInput) {

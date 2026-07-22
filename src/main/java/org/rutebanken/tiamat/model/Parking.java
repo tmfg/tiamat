@@ -22,6 +22,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Transient;
 
@@ -47,9 +49,6 @@ public class Parking
     protected List<String> cardsAccepted;
     @Transient
     protected PaymentByMobileStructure paymentByMobile;
-    @Transient
-    protected ParkingEntrancesForVehicles_RelStructure vehicleEntrances;
-
     @Transient
     protected SitePathLinks_RelStructure pathLinks;
     @Transient
@@ -85,6 +84,12 @@ public class Parking
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     protected List<ParkingArea> parkingAreas;
+
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinTable(name = "parking_vehicle_entrances",
+            joinColumns = @JoinColumn(name = "parking_id"),
+            inverseJoinColumns = @JoinColumn(name = "vehicle_entrances_id"))
+    protected List<ParkingEntranceForVehicles> vehicleEntrances = new ArrayList<>();
 
     public SitePathLinks_RelStructure getPathLinks() {
         return pathLinks;
@@ -297,11 +302,14 @@ public class Parking
         this.parkingAreas = value;
     }
 
-    public ParkingEntrancesForVehicles_RelStructure getVehicleEntrances() {
+    public List<ParkingEntranceForVehicles> getVehicleEntrances() {
+        if (vehicleEntrances == null) {
+            vehicleEntrances = new ArrayList<>();
+        }
         return vehicleEntrances;
     }
 
-    public void setVehicleEntrances(ParkingEntrancesForVehicles_RelStructure value) {
+    public void setVehicleEntrances(List<ParkingEntranceForVehicles> value) {
         this.vehicleEntrances = value;
     }
 

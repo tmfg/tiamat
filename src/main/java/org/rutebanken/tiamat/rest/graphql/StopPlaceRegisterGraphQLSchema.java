@@ -759,6 +759,7 @@ public class StopPlaceRegisterGraphQLSchema {
         dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_PARENT_STOPPLACE);
         dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_QUAY);
         dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_PARKING);
+        dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_VEHICLE_ENTRANCE);
         dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_TARIFF_ZONE);
         dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_FARE_ZONE);
         dataFetcherGeometry(codeRegistryBuilder, OUTPUT_TYPE_BOARDING_POSITION);
@@ -785,6 +786,7 @@ public class StopPlaceRegisterGraphQLSchema {
         registerDataFetcher(codeRegistryBuilder,OUTPUT_TYPE_FARE_ZONE,ID,getNetexIdFetcher());
 
         registerDataFetcher(codeRegistryBuilder,OUTPUT_TYPE_PARKING,ID,getNetexIdFetcher());
+        registerDataFetcher(codeRegistryBuilder,OUTPUT_TYPE_VEHICLE_ENTRANCE,ID,getNetexIdFetcher());
 
         registerDataFetcher(codeRegistryBuilder, OUTPUT_TYPE_STOPPLACE, KEY_VALUES, keyValuesDataFetcher);
         registerDataFetcher(codeRegistryBuilder, OUTPUT_TYPE_PARENT_STOPPLACE, KEY_VALUES, keyValuesDataFetcher);
@@ -1668,4 +1670,3 @@ public class StopPlaceRegisterGraphQLSchema {
     }
 
 }
-

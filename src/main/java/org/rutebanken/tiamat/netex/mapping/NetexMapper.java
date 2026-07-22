@@ -144,6 +144,10 @@ public class NetexMapper {
                 .byDefault()
                 .register();
 
+        mapperFactoryWithNetexIdClassBuilder(org.rutebanken.netex.model.ParkingEntranceForVehicles.class, org.rutebanken.tiamat.model.ParkingEntranceForVehicles.class)
+                .byDefault()
+                .register();
+
         mapperFactoryWithNetexIdClassBuilder(FareZone.class, org.rutebanken.tiamat.model.FareZone.class)
                 .exclude("transportOrganisationRef")
                 .exclude("neighbours")
@@ -251,6 +255,7 @@ public class NetexMapper {
 
     private <P extends org.rutebanken.tiamat.model.Parking> void registerParkingClassMap(Class<P> parkingEntityClass, List<String> mappingExclusions) {
         ClassMapBuilder<Parking, P> builder = mapperFactoryWithNetexIdClassBuilder(Parking.class, parkingEntityClass);
+        builder.exclude("vehicleEntrances");
         mappingExclusions.forEach(builder::exclude);
         builder.customize(new ParkingMapper<>(parkingMapperContributors))
                 .byDefault()
