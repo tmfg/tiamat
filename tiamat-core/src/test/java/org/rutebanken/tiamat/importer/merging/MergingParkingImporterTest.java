@@ -257,6 +257,29 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
         assertThat(parking.getParkingVehicleTypes()).containsAll(Arrays.asList(ParkingVehicleEnumeration.CAR, ParkingVehicleEnumeration.PEDAL_CYCLE));
     }
 
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedPaymentMethods() {
+
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        Parking firstParking = new Parking();
+        firstParking.getPaymentMethods().add(org.rutebanken.tiamat.model.PaymentMethodEnumeration.CASH);
+        firstParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+
+        Parking secondParking = new Parking();
+        secondParking.getPaymentMethods().add(org.rutebanken.tiamat.model.PaymentMethodEnumeration.CASH);
+        secondParking.getPaymentMethods().add(org.rutebanken.tiamat.model.PaymentMethodEnumeration.CREDIT_CARD);
+        secondParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+
+        Parking parking = mergingParkingImporter.handleAlreadyExistingParking(firstParking, secondParking);
+
+        assertThat(parking).isNotNull();
+        assertThat(parking.getPaymentMethods()).containsExactlyInAnyOrder(
+                org.rutebanken.tiamat.model.PaymentMethodEnumeration.CASH,
+                org.rutebanken.tiamat.model.PaymentMethodEnumeration.CREDIT_CARD);
+    }
+
     private Point point(double longitude, double latitude) {
         return
                 geometryFactory.createPoint(

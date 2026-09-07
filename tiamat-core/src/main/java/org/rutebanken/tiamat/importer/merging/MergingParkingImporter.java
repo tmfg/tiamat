@@ -160,8 +160,17 @@ public class MergingParkingImporter {
             vehicleType = true;
         }
 
+        boolean paymentMethodsChanged = false;
+        if (!copy.getPaymentMethods().containsAll(incomingParking.getPaymentMethods()) ||
+                        !incomingParking.getPaymentMethods().containsAll(copy.getPaymentMethods())) {
+            copy.getPaymentMethods().clear();
+            copy.getPaymentMethods().addAll(incomingParking.getPaymentMethods());
+            logger.info("Updated paymentMethods to {} for parking {}", copy.getPaymentMethods(), copy);
+            paymentMethodsChanged = true;
+        }
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType) {
+
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);
