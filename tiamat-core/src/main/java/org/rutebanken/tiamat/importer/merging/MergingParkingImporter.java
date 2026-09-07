@@ -182,6 +182,13 @@ public class MergingParkingImporter {
             infoLinksChanged = true;
         }
 
+        boolean availabilityConditionsChanged = false;
+        if (!copy.getAvailabilityConditions().equals(incomingParking.getAvailabilityConditions())) {
+            copy.setAvailabilityConditions(new java.util.ArrayList<>(incomingParking.getAvailabilityConditions()));
+            logger.info("Updated availabilityConditions to {} for parking {}", copy.getAvailabilityConditions(), copy);
+            availabilityConditionsChanged = true;
+        }
+
         boolean lightingChanged = false;
         if ((copy.getLighting() == null && incomingParking.getLighting() != null) ||
             (copy.getLighting() != null && incomingParking.getLighting() != null
@@ -200,7 +207,7 @@ public class MergingParkingImporter {
         }
 
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || infoLinksChanged || lightingChanged || vehicleEntrancesChanged) {
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || infoLinksChanged || availabilityConditionsChanged || lightingChanged || vehicleEntrancesChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);
