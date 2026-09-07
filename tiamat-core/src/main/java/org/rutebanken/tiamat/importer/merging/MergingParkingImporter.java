@@ -169,8 +169,18 @@ public class MergingParkingImporter {
             paymentMethodsChanged = true;
         }
 
+        boolean lightingChanged = false;
+        if ((copy.getLighting() == null && incomingParking.getLighting() != null) ||
+            (copy.getLighting() != null && incomingParking.getLighting() != null
+                    && !copy.getLighting().equals(incomingParking.getLighting()))) {
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged) {
+            copy.setLighting(incomingParking.getLighting());
+            logger.info("Updated lighting to {} for parking {}", copy.getLighting(), copy);
+            lightingChanged = true;
+        }
+
+
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || lightingChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);

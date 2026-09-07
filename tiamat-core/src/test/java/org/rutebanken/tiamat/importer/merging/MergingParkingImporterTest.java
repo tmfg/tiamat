@@ -280,6 +280,26 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
                 org.rutebanken.tiamat.model.PaymentMethodEnumeration.CREDIT_CARD);
     }
 
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedLighting() {
+
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        Parking firstParking = new Parking();
+        firstParking.setLighting(org.rutebanken.tiamat.model.LightingEnumeration.UNLIT);
+        firstParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+
+        Parking secondParking = new Parking();
+        secondParking.setLighting(org.rutebanken.tiamat.model.LightingEnumeration.WELL_LIT);
+        secondParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+
+        Parking parking = mergingParkingImporter.handleAlreadyExistingParking(firstParking, secondParking);
+
+        assertThat(parking).isNotNull();
+        assertThat(parking.getLighting()).isEqualTo(org.rutebanken.tiamat.model.LightingEnumeration.WELL_LIT);
+    }
+
     private Point point(double longitude, double latitude) {
         return
                 geometryFactory.createPoint(
