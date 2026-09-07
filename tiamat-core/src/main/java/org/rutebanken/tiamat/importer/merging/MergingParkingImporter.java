@@ -20,6 +20,7 @@ import org.rutebanken.tiamat.importer.finder.NearbyParkingFinder;
 import org.rutebanken.tiamat.importer.finder.ParkingFromOriginalIdFinder;
 import org.rutebanken.tiamat.model.DataManagedObjectStructure;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
 import org.rutebanken.tiamat.netex.mapping.NetexMapper;
 import org.rutebanken.tiamat.netex.mapping.mapper.NetexIdMapper;
 import org.rutebanken.tiamat.repository.reference.ReferenceResolver;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.concurrent.ExecutionException;
+import java.util.List;
 
 import static org.rutebanken.tiamat.netex.mapping.mapper.NetexIdMapper.ORIGINAL_ID_KEY;
 
@@ -54,6 +56,8 @@ public class MergingParkingImporter {
 
     private final ParkingFromOriginalIdFinder parkingFromOriginalIdFinder;
 
+    private final ParkingEntranceMerger parkingEntranceMerger;
+
     private final ReferenceResolver referenceResolver;
 
     private final VersionCreator versionCreator;
@@ -62,7 +66,8 @@ public class MergingParkingImporter {
     public MergingParkingImporter(ParkingFromOriginalIdFinder parkingFromOriginalIdFinder,
                                   NearbyParkingFinder nearbyParkingFinder, ReferenceResolver referenceResolver,
                                   KeyValueListAppender keyValueListAppender, NetexMapper netexMapper,
-                                  ParkingVersionedSaverService parkingVersionedSaverService, VersionCreator versionCreator) {
+                                  ParkingVersionedSaverService parkingVersionedSaverService, VersionCreator versionCreator,
+                                  ParkingEntranceMerger parkingEntranceMerger) {
         this.parkingFromOriginalIdFinder = parkingFromOriginalIdFinder;
         this.nearbyParkingFinder = nearbyParkingFinder;
         this.referenceResolver = referenceResolver;
@@ -70,6 +75,7 @@ public class MergingParkingImporter {
         this.netexMapper = netexMapper;
         this.parkingVersionedSaverService = parkingVersionedSaverService;
         this.versionCreator = versionCreator;
+        this.parkingEntranceMerger = parkingEntranceMerger;
     }
 
     /**
@@ -179,8 +185,15 @@ public class MergingParkingImporter {
             lightingChanged = true;
         }
 
+        List<ParkingEntranceForVehicles> existingEntrances = copy.getVehicleEntrances();
+        boolean vehicleEntrancesChanged = parkingEntranceMerger.appendNewEntrances(incomingParking.getVehicleEntrances(), existingEntrances);
+        if (vehicleEntrancesChanged) {
+            copy.setVehicleEntrances(existingEntrances);
+            logger.info("Updated vehicleEntrances to {} for parking {}", copy.getVehicleEntrances(), copy);
+        }
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || lightingChanged) {
+
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || lightingChanged || vehicleEntrancesChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);
