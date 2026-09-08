@@ -19,12 +19,22 @@ import org.junit.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Point;
 import org.rutebanken.tiamat.TiamatIntegrationTest;
+import org.rutebanken.tiamat.model.CycleStorageEnumeration;
+import org.rutebanken.tiamat.model.CycleStorageEquipment;
 import org.rutebanken.tiamat.model.EmbeddableMultilingualString;
 import org.rutebanken.tiamat.model.EntranceEnumeration;
+import org.rutebanken.tiamat.model.LightingEnumeration;
+import org.rutebanken.tiamat.model.OrganisationRefStructure;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.ParkingCapacity;
 import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
+import org.rutebanken.tiamat.model.ParkingLayoutEnumeration;
+import org.rutebanken.tiamat.model.ParkingPaymentProcessEnumeration;
+import org.rutebanken.tiamat.model.ParkingProperties;
 import org.rutebanken.tiamat.model.ParkingTypeEnumeration;
+import org.rutebanken.tiamat.model.ParkingUserEnumeration;
 import org.rutebanken.tiamat.model.ParkingVehicleEnumeration;
+import org.rutebanken.tiamat.model.PlaceEquipment;
 import org.rutebanken.tiamat.model.SiteRefStructure;
 import org.rutebanken.tiamat.model.StopPlace;
 import org.rutebanken.tiamat.netex.mapping.mapper.NetexIdMapper;
@@ -32,6 +42,7 @@ import org.rutebanken.tiamat.versioning.save.ParkingVersionedSaverService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -364,8 +375,215 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
                 .hasSize(1);
     }
 
-    private ParkingEntranceForVehicles vehicleEntrance(String netexId, String publicCode, java.math.BigDecimal width) {
-        ParkingEntranceForVehicles entrance = new ParkingEntranceForVehicles();
+    /**
+     * Regression tests for PR #465 review finding: {@link MergingParkingImporter#handleAlreadyExistingParking}
+     * only merged an allow-list of fields, so a re-import carrying a changed capacity, name, layout or
+     * equipment silently kept the stored value and did not even record a new version.
+     */
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedTotalCapacity() {
+        Parking existing = savedParking(parking -> parking.setTotalCapacity(BigInteger.valueOf(50)));
+
+        Parking incoming = incomingParking(existing, parking -> parking.setTotalCapacity(BigInteger.valueOf(500)));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getTotalCapacity()).isEqualTo(BigInteger.valueOf(500));
+        assertThat(result.getVersion()).as("A changed capacity must produce a new version").isEqualTo(2L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedParkingPropertiesCapacity() {
+        Parking existing = savedParking(parking ->
+                parking.setParkingProperties(List.of(parkingProperties(BigInteger.valueOf(10)))));
+
+        Parking incoming = incomingParking(existing, parking ->
+                parking.setParkingProperties(List.of(parkingProperties(BigInteger.valueOf(999)))));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getParkingProperties()).hasSize(1);
+        assertThat(result.getParkingProperties().get(0).getSpaces().get(0).getNumberOfSpaces())
+                .isEqualTo(BigInteger.valueOf(999));
+        assertThat(result.getVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingReimportOfSameParkingPropertiesIsIdempotent() {
+        Parking existing = savedParking(parking ->
+                parking.setParkingProperties(List.of(parkingProperties(BigInteger.valueOf(10)))));
+
+        Parking incoming = incomingParking(existing, parking ->
+                parking.setParkingProperties(List.of(parkingProperties(BigInteger.valueOf(10)))));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getParkingProperties()).hasSize(1);
+        assertThat(result.getVersion())
+                .as("Re-importing identical parking properties must not produce a new version")
+                .isEqualTo(1L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedName() {
+        Parking existing = savedParking(parking -> parking.setName(new EmbeddableMultilingualString("Old name", "fi")));
+
+        Parking incoming = incomingParking(existing, parking -> parking.setName(new EmbeddableMultilingualString("New name", "fi")));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getName().getValue()).isEqualTo("New name");
+        assertThat(result.getVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedLayoutSecureAndRecharging() {
+        Parking existing = savedParking(parking -> {
+            parking.setParkingLayout(ParkingLayoutEnumeration.UNDEFINED);
+            parking.setSecure(false);
+            parking.setRechargingAvailable(false);
+        });
+
+        Parking incoming = incomingParking(existing, parking -> {
+            parking.setParkingLayout(ParkingLayoutEnumeration.COVERED);
+            parking.setSecure(true);
+            parking.setRechargingAvailable(true);
+        });
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getParkingLayout()).isEqualTo(ParkingLayoutEnumeration.COVERED);
+        assertThat(result.isSecure()).isTrue();
+        assertThat(result.isRechargingAvailable()).isTrue();
+        assertThat(result.getVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedParkingPaymentProcess() {
+        Parking existing = savedParking(parking ->
+                parking.getParkingPaymentProcess().add(ParkingPaymentProcessEnumeration.PAY_AND_DISPLAY));
+
+        Parking incoming = incomingParking(existing, parking ->
+                parking.getParkingPaymentProcess().add(ParkingPaymentProcessEnumeration.PAY_BY_MOBILE_DEVICE));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getParkingPaymentProcess()).containsExactly(ParkingPaymentProcessEnumeration.PAY_BY_MOBILE_DEVICE);
+        assertThat(result.getVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedPlaceEquipments() {
+        Parking existing = savedParking(parking -> parking.setPlaceEquipments(cycleStorage(CycleStorageEnumeration.BARS)));
+
+        Parking incoming = incomingParking(existing, parking -> parking.setPlaceEquipments(cycleStorage(CycleStorageEnumeration.RACKS)));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getPlaceEquipments().getInstalledEquipment()).hasSize(1);
+        assertThat(((CycleStorageEquipment) result.getPlaceEquipments().getInstalledEquipment().get(0)).getCycleStorageType())
+                .isEqualTo(CycleStorageEnumeration.RACKS);
+        assertThat(result.getVersion()).isEqualTo(2L);
+    }
+
+    @Test
+    public void testHandleAlreadyExistingParkingReimportOfSamePlaceEquipmentsIsIdempotent() {
+        Parking existing = savedParking(parking -> parking.setPlaceEquipments(cycleStorage(CycleStorageEnumeration.BARS)));
+
+        Parking incoming = incomingParking(existing, parking -> parking.setPlaceEquipments(cycleStorage(CycleStorageEnumeration.BARS)));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getVersion())
+                .as("Re-importing identical place equipments must not produce a new version")
+                .isEqualTo(1L);
+    }
+
+    /**
+     * A parking can be assembled from several site frames, so an import that leaves a field out must
+     * not clear the stored value.
+     */
+    @Test
+    public void testHandleAlreadyExistingParkingDoesNotClearFieldsAbsentFromIncoming() {
+        Parking existing = savedParking(parking -> {
+            parking.setTotalCapacity(BigInteger.valueOf(50));
+            parking.setName(new EmbeddableMultilingualString("Kept name", "fi"));
+            parking.setParkingLayout(ParkingLayoutEnumeration.COVERED);
+            parking.setParkingProperties(List.of(parkingProperties(BigInteger.valueOf(10))));
+        });
+
+        Parking incoming = incomingParking(existing, parking -> parking.setLighting(LightingEnumeration.WELL_LIT));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getTotalCapacity()).isEqualTo(BigInteger.valueOf(50));
+        assertThat(result.getName().getValue()).isEqualTo("Kept name");
+        assertThat(result.getParkingLayout()).isEqualTo(ParkingLayoutEnumeration.COVERED);
+        assertThat(result.getParkingProperties()).hasSize(1);
+        assertThat(result.getLighting()).isEqualTo(LightingEnumeration.WELL_LIT);
+    }
+
+    /**
+     * {@code organisationRef} is {@code @Transient}, so an existing parking read back from the
+     * database never has one. Merging it would report a change on every import and grow a new
+     * version each time while still persisting nothing.
+     */
+    @Test
+    public void testHandleAlreadyExistingParkingIgnoresTransientOrganisationRef() {
+        Parking existing = savedParking(parking -> {
+        });
+        existing.setOrganisationRef(null); // as read back from the database
+
+        OrganisationRefStructure organisationRef = new OrganisationRefStructure();
+        organisationRef.setRef("FIN:Operator:1");
+        Parking incoming = incomingParking(existing, parking -> parking.setOrganisationRef(organisationRef));
+
+        Parking result = mergingParkingImporter.handleAlreadyExistingParking(existing, incoming);
+
+        assertThat(result.getVersion())
+                .as("A transient organisationRef must not produce a new version on every import")
+                .isEqualTo(1L);
+    }
+
+    private Parking savedParking(java.util.function.Consumer<Parking> customizer) {
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        Parking parking = new Parking();
+        parking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        customizer.accept(parking);
+        return parkingVersionedSaverService.saveNewVersion(parking);
+    }
+
+    private Parking incomingParking(Parking existing, java.util.function.Consumer<Parking> customizer) {
+        Parking parking = new Parking();
+        parking.setParentSiteRef(new SiteRefStructure(existing.getParentSiteRef().getRef()));
+        customizer.accept(parking);
+        return parking;
+    }
+
+    private ParkingProperties parkingProperties(BigInteger numberOfSpaces) {
+        ParkingCapacity capacity = new ParkingCapacity();
+        capacity.setParkingUserType(ParkingUserEnumeration.ALL_USERS);
+        capacity.setParkingVehicleType(ParkingVehicleEnumeration.CAR);
+        capacity.setNumberOfSpaces(numberOfSpaces);
+
+        ParkingProperties parkingProperties = new ParkingProperties();
+        parkingProperties.getParkingUserTypes().add(ParkingUserEnumeration.ALL_USERS);
+        parkingProperties.setSpaces(List.of(capacity));
+        return parkingProperties;
+    }
+
+    private PlaceEquipment cycleStorage(CycleStorageEnumeration cycleStorageType) {
+        CycleStorageEquipment cycleStorageEquipment = new CycleStorageEquipment();
+        cycleStorageEquipment.setCycleStorageType(cycleStorageType);
+
+        PlaceEquipment placeEquipment = new PlaceEquipment();
+        placeEquipment.getInstalledEquipment().add(cycleStorageEquipment);
+        return placeEquipment;
+    }
+
+    private ParkingEntranceForVehicles vehicleEntrance(String netexId, String publicCode, java.math.BigDecimal width) {        ParkingEntranceForVehicles entrance = new ParkingEntranceForVehicles();
         entrance.setNetexId(netexId);
         entrance.setPublicCode(publicCode);
         entrance.setWidth(width);

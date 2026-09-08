@@ -139,6 +139,19 @@ public class MergingParkingImporter {
         return updateCache(incomingParking);
     }
 
+    /**
+     * Merges an incoming parking into the stored one, returning a new version when anything actually
+     * changed.
+     * <p>
+     * A field is only taken from the incoming parking when that parking carries a value for it. An
+     * import that omits a field therefore leaves the stored value alone rather than clearing it,
+     * which matters because a parking can be assembled from several site frames.
+     * <p>
+     * {@code organisationRef} is deliberately not merged. It is {@code @Transient} on
+     * {@link org.rutebanken.tiamat.model.Site_VersionStructure}, so it is never stored: an existing
+     * parking read back from the database always has none, and merging an incoming one would report
+     * a change on every import and grow a new version each time without ever persisting anything.
+     */
     public Parking handleAlreadyExistingParking(Parking existingParking, Parking incomingParking) {
         logger.debug("Found existing parking {} from incoming {}", existingParking, incomingParking);
 
@@ -206,8 +219,79 @@ public class MergingParkingImporter {
             logger.info("Updated vehicleEntrances to {} for parking {}", copy.getVehicleEntrances(), copy);
         }
 
+        boolean nameChanged = false;
+        if (incomingParking.getName() != null && !incomingParking.getName().equals(copy.getName())) {
+            copy.setName(incomingParking.getName());
+            logger.info("Updated name to {} for parking {}", copy.getName(), copy);
+            nameChanged = true;
+        }
 
-        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || infoLinksChanged || availabilityConditionsChanged || lightingChanged || vehicleEntrancesChanged) {
+        boolean parkingLayoutChanged = false;
+        if (incomingParking.getParkingLayout() != null && incomingParking.getParkingLayout() != copy.getParkingLayout()) {
+            copy.setParkingLayout(incomingParking.getParkingLayout());
+            logger.info("Updated parkingLayout to {} for parking {}", copy.getParkingLayout(), copy);
+            parkingLayoutChanged = true;
+        }
+
+        boolean totalCapacityChanged = false;
+        if (incomingParking.getTotalCapacity() != null && !incomingParking.getTotalCapacity().equals(copy.getTotalCapacity())) {
+            copy.setTotalCapacity(incomingParking.getTotalCapacity());
+            logger.info("Updated totalCapacity to {} for parking {}", copy.getTotalCapacity(), copy);
+            totalCapacityChanged = true;
+        }
+
+        boolean rechargingAvailableChanged = false;
+        if (incomingParking.isRechargingAvailable() != null && !incomingParking.isRechargingAvailable().equals(copy.isRechargingAvailable())) {
+            copy.setRechargingAvailable(incomingParking.isRechargingAvailable());
+            logger.info("Updated rechargingAvailable to {} for parking {}", copy.isRechargingAvailable(), copy);
+            rechargingAvailableChanged = true;
+        }
+
+        boolean secureChanged = false;
+        if (incomingParking.isSecure() != null && !incomingParking.isSecure().equals(copy.isSecure())) {
+            copy.setSecure(incomingParking.isSecure());
+            logger.info("Updated secure to {} for parking {}", copy.isSecure(), copy);
+            secureChanged = true;
+        }
+
+        boolean parkingPaymentProcessChanged = false;
+        if (!incomingParking.getParkingPaymentProcess().isEmpty()
+                && !(copy.getParkingPaymentProcess().containsAll(incomingParking.getParkingPaymentProcess())
+                        && incomingParking.getParkingPaymentProcess().containsAll(copy.getParkingPaymentProcess()))) {
+            copy.getParkingPaymentProcess().clear();
+            copy.getParkingPaymentProcess().addAll(incomingParking.getParkingPaymentProcess());
+            logger.info("Updated parkingPaymentProcess to {} for parking {}", copy.getParkingPaymentProcess(), copy);
+            parkingPaymentProcessChanged = true;
+        }
+
+        boolean parkingPropertiesChanged = false;
+        if (incomingParking.getParkingProperties() != null && !incomingParking.getParkingProperties().isEmpty()
+                && !ParkingContentComparator.sameParkingProperties(copy.getParkingProperties(), incomingParking.getParkingProperties())) {
+            copy.setParkingProperties(new java.util.ArrayList<>(incomingParking.getParkingProperties()));
+            logger.info("Updated parkingProperties to {} for parking {}", copy.getParkingProperties(), copy);
+            parkingPropertiesChanged = true;
+        }
+
+        boolean alternativeNamesChanged = false;
+        if (!incomingParking.getAlternativeNames().isEmpty()
+                && !ParkingContentComparator.sameAlternativeNames(copy.getAlternativeNames(), incomingParking.getAlternativeNames())) {
+            copy.getAlternativeNames().clear();
+            copy.getAlternativeNames().addAll(incomingParking.getAlternativeNames());
+            logger.info("Updated alternativeNames to {} for parking {}", copy.getAlternativeNames(), copy);
+            alternativeNamesChanged = true;
+        }
+
+        boolean placeEquipmentsChanged = false;
+        if (incomingParking.getPlaceEquipments() != null
+                && !ParkingContentComparator.samePlaceEquipment(copy.getPlaceEquipments(), incomingParking.getPlaceEquipments())) {
+            copy.setPlaceEquipments(incomingParking.getPlaceEquipments());
+            logger.info("Updated placeEquipments to {} for parking {}", copy.getPlaceEquipments(), copy);
+            placeEquipmentsChanged = true;
+        }
+
+        if (keyValuesChanged || typeChanged || centroidChanged || vehicleType || paymentMethodsChanged || infoLinksChanged || availabilityConditionsChanged || lightingChanged || vehicleEntrancesChanged
+                || nameChanged || parkingLayoutChanged || totalCapacityChanged || rechargingAvailableChanged || secureChanged
+                || parkingPaymentProcessChanged || parkingPropertiesChanged || alternativeNamesChanged || placeEquipmentsChanged) {
             logger.info("Updated existing parking {}. ", copy);
             copy = parkingVersionedSaverService.saveNewVersion(copy);
             return updateCache(copy);
