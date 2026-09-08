@@ -20,7 +20,9 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Point;
 import org.rutebanken.tiamat.TiamatIntegrationTest;
 import org.rutebanken.tiamat.model.EmbeddableMultilingualString;
+import org.rutebanken.tiamat.model.EntranceEnumeration;
 import org.rutebanken.tiamat.model.Parking;
+import org.rutebanken.tiamat.model.ParkingEntranceForVehicles;
 import org.rutebanken.tiamat.model.ParkingTypeEnumeration;
 import org.rutebanken.tiamat.model.ParkingVehicleEnumeration;
 import org.rutebanken.tiamat.model.SiteRefStructure;
@@ -31,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -298,6 +301,77 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
 
         assertThat(parking).isNotNull();
         assertThat(parking.getLighting()).isEqualTo(org.rutebanken.tiamat.model.LightingEnumeration.WELL_LIT);
+    }
+
+    /**
+     * Regression test for PR #465 review finding 1B
+     * (generated-docs/pr_tiamat_parking-nordic-extensions.md): a matched vehicle entrance's
+     * mutable fields must be reconciled from the incoming re-import, and doing so must produce
+     * a new parking version.
+     */
+    @Test
+    public void testHandleAlreadyExistingParkingUpdatedVehicleEntranceField() {
+
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        ParkingEntranceForVehicles existingEntrance = vehicleEntrance("FIN:ParkingEntranceForVehicles:1-0", "A1", java.math.BigDecimal.valueOf(2.5));
+
+        Parking firstParking = new Parking();
+        firstParking.getVehicleEntrances().add(existingEntrance);
+        firstParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        firstParking = parkingVersionedSaverService.saveNewVersion(firstParking);
+
+        ParkingEntranceForVehicles incomingEntrance = vehicleEntrance("FIN:ParkingEntranceForVehicles:1-0", "A1", java.math.BigDecimal.valueOf(3.1));
+
+        Parking incomingParking = new Parking();
+        incomingParking.getVehicleEntrances().add(incomingEntrance);
+        incomingParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+
+        Parking parking = mergingParkingImporter.handleAlreadyExistingParking(firstParking, incomingParking);
+
+        assertThat(parking).isNotNull();
+        assertThat(parking.getVersion()).isGreaterThan(firstParking.getVersion());
+        assertThat(parking.getVehicleEntrances()).hasSize(1);
+        assertThat(parking.getVehicleEntrances().get(0).getWidth()).isEqualByComparingTo("3.1");
+    }
+
+    /**
+     * Regression test for PR #465 review finding 1A: re-importing the same coordinate-less,
+     * stable-netexId entrance must not append a duplicate, and must not violate V67's
+     * {@code UNIQUE (netex_id, version)} constraint.
+     */
+    @Test
+    public void testHandleAlreadyExistingParkingReimportOfSameVehicleEntranceIsIdempotent() {
+
+        StopPlace stopPlace = new StopPlace();
+        stopPlaceRepository.save(stopPlace);
+
+        Parking firstParking = new Parking();
+        firstParking.getVehicleEntrances().add(vehicleEntrance("FIN:ParkingEntranceForVehicles:2-0", "A1", java.math.BigDecimal.valueOf(2.5)));
+        firstParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+        firstParking = parkingVersionedSaverService.saveNewVersion(firstParking);
+
+        Parking incomingParking = new Parking();
+        incomingParking.getVehicleEntrances().add(vehicleEntrance("FIN:ParkingEntranceForVehicles:2-0", "A1", java.math.BigDecimal.valueOf(2.5)));
+        incomingParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
+
+        Parking parking = mergingParkingImporter.handleAlreadyExistingParking(firstParking, incomingParking);
+
+        assertThat(parking).isNotNull();
+        assertThat(parking.getVehicleEntrances())
+                .as("Re-importing the same stable-id entrance must not duplicate it")
+                .hasSize(1);
+    }
+
+    private ParkingEntranceForVehicles vehicleEntrance(String netexId, String publicCode, java.math.BigDecimal width) {
+        ParkingEntranceForVehicles entrance = new ParkingEntranceForVehicles();
+        entrance.setNetexId(netexId);
+        entrance.setPublicCode(publicCode);
+        entrance.setWidth(width);
+        entrance.setEntranceType(EntranceEnumeration.OPEN_DOOR);
+        entrance.setLabel(new EmbeddableMultilingualString("Main", "en"));
+        return entrance;
     }
 
     private Point point(double longitude, double latitude) {
