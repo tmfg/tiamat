@@ -360,7 +360,8 @@ class ParkingUpdater implements DataFetcher {
 
         Optional<PlaceEquipment> placeEquipment = placeEquipmentMapper.map(input);
         if (placeEquipment.isPresent()) {
-            isUpdated = isUpdated || !Objects.equals(placeEquipment.get(), updatedParking.getPlaceEquipments());
+            // Present in the input means the client intends to write it, as in SiteElementMapper.
+            isUpdated = true;
             updatedParking.setPlaceEquipments(placeEquipment.get());
         }
 
