@@ -232,14 +232,14 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
 
         Parking firstParking = createParking(name, longitude, latitude, null);
         firstParking.setParkingType(ParkingTypeEnumeration.PARK_AND_RIDE);
-        firstParking.getOrCreateValues(NetexIdMapper.ORIGINAL_ID_KEY).add("FIN:Parking:liipi-100");
+        firstParking.getOrCreateValues(NetexIdMapper.ORIGINAL_ID_KEY).add("FIN:Parking:100");
         firstParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
 
         Parking firstResult = mergingParkingImporter.importParkingWithoutNetexMapping(firstParking);
 
         Parking secondParking = createParking(name, longitude, latitude, null);
         secondParking.setParkingType(ParkingTypeEnumeration.PARK_AND_RIDE);
-        secondParking.getOrCreateValues(NetexIdMapper.ORIGINAL_ID_KEY).add("FIN:Parking:liipi-200");
+        secondParking.getOrCreateValues(NetexIdMapper.ORIGINAL_ID_KEY).add("FIN:Parking:200");
         secondParking.setParentSiteRef(new SiteRefStructure(stopPlace.getNetexId()));
 
         Parking secondResult = mergingParkingImporter.importParkingWithoutNetexMapping(secondParking);
@@ -315,10 +315,8 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
     }
 
     /**
-     * Regression test for PR #465 review finding 1B
-     * (generated-docs/pr_tiamat_parking-nordic-extensions.md): a matched vehicle entrance's
-     * mutable fields must be reconciled from the incoming re-import, and doing so must produce
-     * a new parking version.
+     * A matched vehicle entrance's mutable fields must be reconciled from the incoming
+     * re-import, and doing so must produce a new parking version.
      */
     @Test
     public void testHandleAlreadyExistingParkingUpdatedVehicleEntranceField() {
@@ -348,9 +346,8 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
     }
 
     /**
-     * Regression test for PR #465 review finding 1A: re-importing the same coordinate-less,
-     * stable-netexId entrance must not append a duplicate, and must not violate V67's
-     * {@code UNIQUE (netex_id, version)} constraint.
+     * Re-importing the same coordinate-less, stable-netexId entrance must not append a
+     * duplicate, and must not violate V67's {@code UNIQUE (netex_id, version)} constraint.
      */
     @Test
     public void testHandleAlreadyExistingParkingReimportOfSameVehicleEntranceIsIdempotent() {
@@ -376,9 +373,10 @@ public class MergingParkingImporterTest extends TiamatIntegrationTest {
     }
 
     /**
-     * Regression tests for PR #465 review finding: {@link MergingParkingImporter#handleAlreadyExistingParking}
-     * only merged an allow-list of fields, so a re-import carrying a changed capacity, name, layout or
-     * equipment silently kept the stored value and did not even record a new version.
+     * Regression tests for {@link MergingParkingImporter#handleAlreadyExistingParking}, which
+     * previously merged only an allow-list of fields, so a re-import carrying a changed capacity,
+     * name, layout or equipment silently kept the stored value and did not even record a new
+     * version.
      */
     @Test
     public void testHandleAlreadyExistingParkingUpdatedTotalCapacity() {

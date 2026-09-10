@@ -36,11 +36,10 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Covers the reconciliation properties documented as required in
- * plan_tiamat-parking-core-redo.md (commit 3, investigation 2), plus the two failure modes
- * found in the PR #465 review (generated-docs/pr_tiamat_parking-nordic-extensions.md, finding 1):
- * duplicate-append on re-import of a coordinate-less, stable-{@code netexId} entrance (1A), and
- * matched-but-changed fields being silently discarded instead of updated (1B).
+ * Covers the reconciliation properties required of {@link ParkingEntranceMerger}, including the
+ * two failure modes it exists to prevent: duplicate-append on re-import of a coordinate-less,
+ * stable-{@code netexId} entrance, and matched-but-changed fields being silently discarded
+ * instead of updated.
  */
 public class ParkingEntranceMergerTest {
 
@@ -108,10 +107,10 @@ public class ParkingEntranceMergerTest {
     }
 
     /**
-     * Finding 1A: without netexId-based matching, a coordinate-less entrance whose original-id
-     * key-value was not retained (e.g. Fintraffic re-imports carrying the NeTEx id verbatim,
-     * rather than a transformed migration-tool id) would be appended again on every re-import,
-     * eventually hitting V67's {@code UNIQUE (netex_id, version)} constraint.
+     * Without netexId-based matching, a coordinate-less entrance whose original-id key-value was
+     * not retained (e.g. a re-import carrying the NeTEx id verbatim, rather than a transformed
+     * source-system id) would be appended again on every re-import, eventually hitting V67's
+     * {@code UNIQUE (netex_id, version)} constraint.
      */
     @Test
     public void reimportOfCoordinateLessStableIdEntranceIsIdempotent() {

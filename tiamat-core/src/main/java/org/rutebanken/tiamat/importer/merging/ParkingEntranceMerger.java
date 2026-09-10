@@ -39,8 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * Deliberately simpler than {@link QuayMerger}: matches on {@code netexId} first (exact
  * identity), falls back to imported-id then centroid proximity, updates matched entrances in
- * place, and is additive-only for unmatched existing entrances. Known, accepted limitations
- * (see plan_tiamat-parking-core-redo.md, commit 3, investigation 2):
+ * place, and is additive-only for unmatched existing entrances. Known, accepted limitations:
  * <ul>
  *     <li>Reordering entrances between re-imports, when neither a stable {@code netexId} nor an
  *     original-id is retained, can corrupt the match (entrances are compared unordered, so this

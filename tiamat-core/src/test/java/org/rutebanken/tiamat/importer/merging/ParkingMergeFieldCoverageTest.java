@@ -104,9 +104,9 @@ public class ParkingMergeFieldCoverageTest {
     /**
      * Content fields deliberately left unmerged.
      * <p>
-     * The scope of the merge logic was drawn around the fields the Liipi park-and-ride
-     * migration emits, not around the whole NeTEx parking model. Everything here is
-     * therefore a known gap rather than an oversight, and re-importing a document that
+     * The scope of the merge logic was drawn around the fields emitted by the park-and-ride
+     * data sources it was written for, not around the whole NeTEx parking model. Everything
+     * here is therefore a known gap rather than an oversight, and re-importing a document that
      * changes one of these fields will not update the stored parking.
      * <p>
      * Two entries deserve particular attention if this list is ever revisited:
