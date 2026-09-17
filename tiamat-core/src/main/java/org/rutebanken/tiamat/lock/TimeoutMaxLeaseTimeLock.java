@@ -10,8 +10,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
@@ -33,7 +33,7 @@ public class TimeoutMaxLeaseTimeLock {
     private static final Logger logger = LoggerFactory.getLogger(TimeoutMaxLeaseTimeLock.class);
 
     private final DataSource dataSource;
-    private final ThreadLocal<Map<String, LockContext>> lockContextByName = ThreadLocal.withInitial(HashMap::new);
+    private final ThreadLocal<Set<String>> locksHeldByThread = ThreadLocal.withInitial(HashSet::new);
 
 
     @Autowired
@@ -62,86 +62,74 @@ public class TimeoutMaxLeaseTimeLock {
      * @return value returned by supplier
      * @throws LockException if lock acquisition fails, times out, or thread is interrupted while waiting
      */
-public <T> T executeInLock(Supplier<T> supplier, String lockName, int waitTimeoutSeconds, int maxLeaseTimeSeconds) {
-    Map<String, LockContext> lockContexts = lockContextByName.get();
-    LockContext existingLockContext = lockContexts.get(lockName);
-    if (existingLockContext != null) {
-        existingLockContext.depth++;
-        try {
+    public <T> T executeInLock(Supplier<T> supplier, String lockName, int waitTimeoutSeconds, int maxLeaseTimeSeconds) {
+        Set<String> locksHeld = locksHeldByThread.get();
+        if (locksHeld.contains(lockName)) {
+            // Outermost frame owns acquisition and release, so a nested call just runs the supplier.
             return supplier.get();
-        } finally {
-            existingLockContext.depth--;
+        }
+
+        logger.info("Waiting for lock {}", lockName);
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(waitTimeoutSeconds);
+        long started = System.currentTimeMillis();
+        try (Connection connection = dataSource.getConnection()) {
+            while (!tryAcquireLock(connection, lockName)) {
+                if (System.nanoTime() >= deadlineNanos) {
+                    throw new LockException("Timed out waiting to aquire lock " + lockName + " after " + waitTimeoutSeconds + " seconds");
+                }
+                TimeUnit.MILLISECONDS.sleep(WAIT_POLL_INTERVAL_MILLIS);
+            }
+            logger.info("Got lock {}", lockName);
+            if (maxLeaseTimeSeconds > 0) {
+                logger.debug("maxLeaseTimeSeconds={} ignored for PostgreSQL advisory locks", maxLeaseTimeSeconds);
+            }
+            locksHeld.add(lockName);
+            try {
+                return supplier.get();
+            } finally {
+                locksHeld.remove(lockName);
+                logger.info("Unlocking {}", lockName);
+                boolean unlocked = unlock(connection, lockName);
+                if (!unlocked) {
+                    long timeSpent = System.currentTimeMillis() - started;
+                    logger.warn("Could not unlock '{}'. Time spent {}ms", lockName, timeSpent);
+                }
+                if (locksHeld.isEmpty()) {
+                    locksHeldByThread.remove();
+                }
+            }
+        } catch (SQLException e) {
+            throw new LockException("Error acquiring lock " + lockName, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new LockException("Interrupted while waiting to aquire lock " + lockName, e);
         }
     }
 
-    logger.info("Waiting for lock {}", lockName);
-    long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(waitTimeoutSeconds);
-    long started = System.currentTimeMillis();
-    try (Connection connection = dataSource.getConnection()) {
-        while (!tryAcquireLock(connection, lockName)) {
-            if (System.nanoTime() >= deadlineNanos) {
-                throw new LockException("Timed out waiting to aquire lock " + lockName + " after " + waitTimeoutSeconds + " seconds");
+    private boolean tryAcquireLock(Connection connection, String lockName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(TRY_LOCK_SQL)) {
+            statement.setInt(1, ADVISORY_LOCK_NAMESPACE);
+            statement.setString(2, lockName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getBoolean(1);
+                }
+                throw new SQLException("No result returned while acquiring advisory lock");
             }
-            TimeUnit.MILLISECONDS.sleep(WAIT_POLL_INTERVAL_MILLIS);
-        }
-        logger.info("Got lock {}", lockName);
-        if (maxLeaseTimeSeconds > 0) {
-            logger.debug("maxLeaseTimeSeconds={} ignored for PostgreSQL advisory locks", maxLeaseTimeSeconds);
-        }
-        lockContexts.put(lockName, new LockContext());
-        try {
-            return supplier.get();
-        } finally {
-            lockContexts.remove(lockName);
-            logger.info("Unlocking {}", lockName);
-            boolean unlocked = unlock(connection, lockName);
-            if (!unlocked) {
-                long timeSpent = System.currentTimeMillis() - started;
-                logger.warn("Could not unlock '{}'. Time spent {}ms", lockName, timeSpent);
-            }
-            if (lockContexts.isEmpty()) {
-                lockContextByName.remove();
-            }
-        }
-    } catch (SQLException e) {
-        throw new LockException("Error acquiring lock " + lockName, e);
-    } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new LockException("Interrupted while waiting to aquire lock " + lockName, e);
-    }
-}
-
-private boolean tryAcquireLock(Connection connection, String lockName) throws SQLException {
-    try (PreparedStatement statement = connection.prepareStatement(TRY_LOCK_SQL)) {
-        statement.setInt(1, ADVISORY_LOCK_NAMESPACE);
-        statement.setString(2, lockName);
-        try (ResultSet resultSet = statement.executeQuery()) {
-            if (resultSet.next()) {
-                return resultSet.getBoolean(1);
-            }
-            throw new SQLException("No result returned while acquiring advisory lock");
         }
     }
-}
 
-private boolean unlock(Connection connection, String lockName) throws SQLException {
-    try (PreparedStatement statement = connection.prepareStatement(UNLOCK_SQL)) {
-        statement.setInt(1, ADVISORY_LOCK_NAMESPACE);
-        statement.setString(2, lockName);
-        try (ResultSet resultSet = statement.executeQuery()) {
-            if (resultSet.next()) {
-                return resultSet.getBoolean(1);
+    private boolean unlock(Connection connection, String lockName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(UNLOCK_SQL)) {
+            statement.setInt(1, ADVISORY_LOCK_NAMESPACE);
+            statement.setString(2, lockName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getBoolean(1);
+                }
+                throw new SQLException("No result returned while releasing advisory lock");
             }
-            throw new SQLException("No result returned while releasing advisory lock");
         }
     }
-}
-
-private static class LockContext {
-    private int depth = 1;
-
-    private LockContext() {
-    }
-}
 
 }
