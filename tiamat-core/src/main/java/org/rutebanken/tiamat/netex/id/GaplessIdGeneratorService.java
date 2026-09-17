@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -60,6 +61,7 @@ public class GaplessIdGeneratorService {
 
     public static final int INSERT_CLAIMED_ID_THRESHOLD = 1000;
     private static final int ADVISORY_LOCK_NAMESPACE = 62153;
+    private static final int MAX_EMPTY_QUEUE_RETRIES = 5;
 
     private static BasicFormatterImpl basicFormatter = new BasicFormatterImpl();
 
@@ -131,10 +133,10 @@ public class GaplessIdGeneratorService {
                 logger.trace("Returning claimed ID {}", claimedId);
                 return claimedId;
             } else {
-                Long remove = availableIds.remove();
-                claimedIds.add(remove);
-                logger.trace("Returning available ID for {}: {}", entityTypeName, remove);
-                return remove;
+                Long nextId = pollAvailableId(entityTypeName, availableIds);
+                claimedIds.add(nextId);
+                logger.trace("Returning available ID for {}: {}", entityTypeName, nextId);
+                return nextId;
             }
         } catch (Exception e) {
             throw new IdGeneratorException("Caught exception when generating IDs for entity " + entityTypeName, e);
@@ -142,20 +144,46 @@ public class GaplessIdGeneratorService {
     }
 
     /**
+     * Take the next available ID, topping up and retrying if the queue was drained concurrently.
+     * <p>
+     * The queue is shared across threads and nodes, so it can be emptied by another claimer between
+     * the top-up check in {@link #getNextIdForEntity(String, long)} and this call. Polling and
+     * regenerating avoids the {@link java.util.NoSuchElementException} that removing from an empty
+     * queue would throw.
+     */
+    private Long pollAvailableId(String entityTypeName, BlockingQueue<Long> availableIds) {
+        Long nextId = availableIds.poll();
+
+        for (int attempt = 1; nextId == null; attempt++) {
+            if (attempt > MAX_EMPTY_QUEUE_RETRIES) {
+                throw new IdGeneratorException("Could not obtain an available ID for entity " + entityTypeName
+                        + " after " + MAX_EMPTY_QUEUE_RETRIES + " attempts to generate new IDs");
+            }
+            logger.debug("Queue of available IDs for {} was drained concurrently. Generating new IDs, attempt {}", entityTypeName, attempt);
+            writeClaimedIdsAndGenerateNew(entityTypeName, true);
+            nextId = availableIds.poll();
+        }
+        return nextId;
+    }
+
+    /**
      * Write claimed IDs and generate new ones.
      */
     private void writeClaimedIdsAndGenerateNew(String entityTypeName, boolean timeToGenerateAvailableIds) {
+        ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
+        Set<Long> persistedIds = new HashSet<>();
         EntityManager entityManager = entityManagerFactory.createEntityManager();
+
         executeInTransaction(() -> {
             acquireAdvisoryTransactionLock(entityTypeName, entityManager);
             BlockingQueue<Long> availableIds = generatedIdState.getQueueForEntity(entityTypeName);
-            ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
 
-            if (!claimedIds.isEmpty()) {
+            Set<Long> claimedIdsToPersist = new HashSet<>(claimedIds);
+            if (!claimedIdsToPersist.isEmpty()) {
                 // Ignore duplicates because claimed ids could already have been inserted as available IDs previously
-                logger.debug("Inserting {} claimed IDs for {}", claimedIds.size(), entityTypeName);
-                insertIdsIgnoreDuplicates(entityTypeName, claimedIds, entityManager);
-                claimedIds.destroy();
+                logger.debug("Inserting {} claimed IDs for {}", claimedIdsToPersist.size(), entityTypeName);
+                insertIdsIgnoreDuplicates(entityTypeName, claimedIdsToPersist, entityManager);
+                persistedIds.addAll(claimedIdsToPersist);
             }
             if (timeToGenerateAvailableIds) {
                 logger.debug("Generating new available IDs for {}", entityTypeName);
@@ -166,6 +194,21 @@ public class GaplessIdGeneratorService {
                 }
             }
         }, entityManager);
+
+        discardPersistedClaimedIds(claimedIds, persistedIds);
+    }
+
+    /**
+     * Remove only the IDs that were actually persisted, and only once the transaction has committed.
+     * <p>
+     * Removing the exact snapshot (rather than clearing the whole set) keeps IDs claimed concurrently
+     * by another thread or node, which would otherwise be dropped before ever reaching the
+     * {@code id_generator} table and could then be handed out a second time.
+     */
+    private void discardPersistedClaimedIds(ISet<Long> claimedIds, Set<Long> persistedIds) {
+        if (!persistedIds.isEmpty()) {
+            claimedIds.removeAll(persistedIds);
+        }
     }
 
     /**
@@ -296,19 +339,24 @@ public class GaplessIdGeneratorService {
         AtomicInteger persisted = new AtomicInteger();
         generatedIdState.getRegisteredEntityNames().forEach(entityTypeName -> {
             try {
+                ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
+                Set<Long> persistedIds = new HashSet<>();
                 EntityManager entityManager = entityManagerFactory.createEntityManager();
+
                 executeInTransaction(() -> {
                     acquireAdvisoryTransactionLock(entityTypeName, entityManager);
-                    ISet<Long> claimedIds = generatedIdState.getClaimedIdListForEntity(entityTypeName);
-                    if(!claimedIds.isEmpty()) {
-                        logger.info("About to write {} claimed IDs to db for {}", claimedIds.size(), entityTypeName);
-                        insertIdsIgnoreDuplicates(entityTypeName, claimedIds, entityManager);
-                        persisted.addAndGet(claimedIds.size());
-                        claimedIds.destroy();
+                    Set<Long> claimedIdsToPersist = new HashSet<>(claimedIds);
+                    if(!claimedIdsToPersist.isEmpty()) {
+                        logger.info("About to write {} claimed IDs to db for {}", claimedIdsToPersist.size(), entityTypeName);
+                        insertIdsIgnoreDuplicates(entityTypeName, claimedIdsToPersist, entityManager);
+                        persisted.addAndGet(claimedIdsToPersist.size());
+                        persistedIds.addAll(claimedIdsToPersist);
                     } else {
                         logger.debug("No claimed IDs to insert for {}", entityTypeName);
                     }
                 }, entityManager);
+
+                discardPersistedClaimedIds(claimedIds, persistedIds);
             } catch (Exception e) {
               logger.warn("Error writing claimed IDs for {} in transaction", entityTypeName, e);
             }

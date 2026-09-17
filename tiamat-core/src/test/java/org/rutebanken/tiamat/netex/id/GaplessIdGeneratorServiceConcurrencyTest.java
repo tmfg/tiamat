@@ -23,7 +23,9 @@ import jakarta.persistence.EntityManager;
 import org.junit.Test;
 import org.rutebanken.tiamat.TiamatIntegrationTest;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -79,8 +81,66 @@ public class GaplessIdGeneratorServiceConcurrencyTest extends TiamatIntegrationT
         }
     }
 
-    private Set<Long> generateIds(GaplessIdGeneratorService generator, String entityName, int amount, CountDownLatch startGate) throws Exception {
-        startGate.await();
+    /**
+     * All threads share one generator (one node, parallel import threads), so they contend on the
+     * same distributed queue of available IDs and the same set of claimed IDs.
+     *
+     * A small fetch size means nearly every call crosses the top-up threshold, and using more threads
+     * than {@link GaplessIdGeneratorService#LOW_LEVEL_AVAILABLE_IDS} means the queue can be drained
+     * between the top-up check and the removal. Together these expose the unguarded check-then-act
+     * sequences in {@code getNextIdForEntity}.
+     */
+    @Test
+    public void concurrentClaimsOnSharedStateReturnUniqueIdsAndPersistThemAll() throws Exception {
+        String entityName = "sharedStateEntity";
+        int threads = 32;
+        int idsPerThread = 40;
+        int expectedIds = threads * idsPerThread;
+        // Larger than the thread count, so a thread that tops up cannot realistically be starved of
+        // all the IDs it just generated. Still small enough that flushes happen constantly.
+        int fetchSize = 64;
+
+        HazelcastInstance hz = newIsolatedHazelcastInstance("idgen-shared-state");
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startGate = new CountDownLatch(1);
+
+        try {
+            GaplessIdGeneratorService generator =
+                    new GaplessIdGeneratorService(entityManagerFactory, hz, new GeneratedIdState(hz), fetchSize);
+
+            List<Future<Set<Long>>> futures = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(executor.submit(() -> generateIds(generator, entityName, idsPerThread, startGate)));
+            }
+            startGate.countDown();
+
+            Set<Long> allIds = new HashSet<>();
+            int totalReturned = 0;
+            for (Future<Set<Long>> future : futures) {
+                Set<Long> ids = future.get(120, TimeUnit.SECONDS);
+                totalReturned += ids.size();
+                allIds.addAll(ids);
+            }
+
+            assertThat(totalReturned)
+                    .as("Every thread should get all the IDs it asked for")
+                    .isEqualTo(expectedIds);
+            assertThat(allIds)
+                    .as("The same ID must never be handed out twice")
+                    .hasSize(expectedIds);
+
+            generator.persistClaimedIds();
+
+            assertThat(countPersistedIds(entityName))
+                    .as("Every claimed ID must reach the id_generator table; none may be dropped by a concurrent flush")
+                    .isEqualTo(expectedIds);
+        } finally {
+            executor.shutdownNow();
+            hz.shutdown();
+        }
+    }
+
+    private Set<Long> generateIds(GaplessIdGeneratorService generator, String entityName, int amount, CountDownLatch startGate) throws Exception {        startGate.await();
         Set<Long> ids = new HashSet<>();
         for (int i = 0; i < amount; i++) {
             ids.add(generator.getNextIdForEntity(entityName));
